@@ -256,6 +256,7 @@ export function App() {
             llmTailoringExecuted: !result.fallbackUsed,
             factValidation: "PASS (0 unsupported claims)",
             pages: result.pages,
+            primaryDomain: result.primaryDomain || result.tailoringDiff?.primary_domain,
             tailoringDiff: result.tailoringDiff,
             htmlPath: result.htmlPath,
             pdfPath: result.pdfPath
@@ -328,8 +329,8 @@ export function App() {
 
   const bestMatchCount = currentList.filter(isBestMatchOffer).length;
   const reactNextCount = currentList.filter((j) => {
-    const t = j.title.toLowerCase();
-    return t.includes("react") || t.includes("next");
+    const t = j.title.replace(/react[\s-]?native/gi, " ").toLowerCase();
+    return /\breact\b/.test(t) || t.includes("next");
   }).length;
   const shopifyCount = currentList.filter((j) => {
     const t = (j.title + " " + (j.extra || "")).toLowerCase();
@@ -360,8 +361,8 @@ export function App() {
     if (matchCategory === "BEST_MATCH") {
       matchCat = isBestMatchOffer(job);
     } else if (matchCategory === "REACT_NEXT") {
-      const t = job.title.toLowerCase();
-      matchCat = t.includes("react") || t.includes("next");
+      const t = job.title.replace(/react[\s-]?native/gi, " ").toLowerCase();
+      matchCat = /\breact\b/.test(t) || t.includes("next");
     } else if (matchCategory === "SHOPIFY") {
       const t = (job.title + " " + (job.extra || "")).toLowerCase();
       matchCat = t.includes("shopify");
@@ -787,6 +788,22 @@ export function App() {
                     ? "NoFluffJobs"
                     : job.url.includes("solid.jobs")
                     ? "SolidJobs"
+                    : job.url.includes("pracuj.pl")
+                    ? "Pracuj.pl"
+                    : job.url.includes("linkedin.com")
+                    ? "LinkedIn"
+                    : job.url.includes("theprotocol.it")
+                    ? "The Protocol"
+                    : job.url.includes("jobs.pl")
+                    ? "Jobs.pl"
+                    : job.url.includes("bulldogjob.pl")
+                    ? "Bulldogjob"
+                    : job.url.includes("rocketjobs.pl")
+                    ? "RocketJobs"
+                    : job.url.includes("indeed.com")
+                    ? "Indeed"
+                    : job.url.includes("glassdoor.")
+                    ? "Glassdoor"
                     : job.url.includes("greenhouse.io")
                     ? "Greenhouse"
                     : "Direct";
@@ -816,7 +833,11 @@ export function App() {
                             </span>
                           )}
                         </div>
-                        {job.reason && <div className="match-reason">{job.reason}{job.compatibilityPercent ? ` | ${job.compatibilityPercent}% compatible` : ""}</div>}
+                        {(job.reasonDisplay || job.reason) && (
+                          <div className="match-reason">
+                            {job.reasonDisplay || `${job.matchClassification} Reason: ${job.reason}${job.compatibilityPercent ? ` | ${job.compatibilityPercent}% compatible` : ""}`}
+                          </div>
+                        )}
                       </td>
                       <td style={{ color: "#38bdf8" }}>{job.company}</td>
                       <td>{job.location}</td>
@@ -986,8 +1007,7 @@ export function App() {
 
               {selectedJob.matchClassification && (
                 <div className="match-explanation">
-                  <strong>{selectedJob.matchClassification}</strong>
-                  <span>{selectedJob.reason}</span>
+                  <strong>{selectedJob.reasonDisplay || `${selectedJob.matchClassification} Reason: ${selectedJob.reason}`}</strong>
                   <span>{selectedJob.compatibilityPercent}% compatible · Tier {selectedJob.compatibilityTier} · {selectedJob.evaluatedFrom === "full-jd" ? "full JD analyzed" : "pipeline summary; run evaluation for full JD"}</span>
                   {selectedJob.primaryStack && selectedJob.primaryStack.length > 0 && <span>Detected stack: {selectedJob.primaryStack.join(" · ")}</span>}
                   {selectedJob.responsibilitySplit && <span>Responsibilities: frontend {selectedJob.responsibilitySplit.frontend}, backend {selectedJob.responsibilitySplit.backend}, platform {selectedJob.responsibilitySplit.platform}</span>}
@@ -1125,10 +1145,12 @@ export function App() {
                 <div><strong>Provider:</strong> {viewingDiff.aiProvider}</div>
                 <div><strong>Fact Check:</strong> <span style={{ color: "#34d399" }}>{viewingDiff.factValidation}</span></div>
                 <div><strong>Page Budget:</strong> {viewingDiff.pages} pages</div>
-                {viewingDiff.tailoringDiff?.primary_domain && (
+                {(viewingDiff.primaryDomain || viewingDiff.tailoringDiff?.primary_domain) && (
                   <div>
                     <strong>Primary domain:</strong>{" "}
-                    <span style={{ color: "#c084fc" }}>{viewingDiff.tailoringDiff.primary_domain}</span>
+                    <span style={{ color: "#c084fc" }}>
+                      {viewingDiff.primaryDomain || viewingDiff.tailoringDiff?.primary_domain}
+                    </span>
                   </div>
                 )}
               </div>
