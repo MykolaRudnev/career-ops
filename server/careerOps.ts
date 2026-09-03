@@ -10,9 +10,39 @@ import {
   type TailoringDiff
 } from "./aiTailor.ts";
 import { buildSimpleTailorResult } from "./cvFromMaster.mjs";
+import { DomainValidationError } from "./cvDomainRouting.mjs";
 import { analyzeJobMatch } from "./jobMatch.mjs";
 
-const JOB_MATCH_VERSION = 2;
+const JOB_MATCH_VERSION = 3;
+
+function findLocalJobDescription(job: { url?: string; company?: string; title?: string }): string {
+  const outputsDir = path.join(WORKSPACE_ROOT, "outputs");
+  if (!fs.existsSync(outputsDir)) return "";
+  const needleUrl = String(job.url || "").trim();
+  const needleCompany = String(job.company || "").toLowerCase();
+  const needleTitle = String(job.title || "").toLowerCase();
+  for (const entry of fs.readdirSync(outputsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const dir = path.join(outputsDir, entry.name);
+    const jdPath = path.join(dir, "job-description.md");
+    if (!fs.existsSync(jdPath)) continue;
+    const metaPath = path.join(dir, "metadata.json");
+    let matched = false;
+    if (fs.existsSync(metaPath)) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+        matched = Boolean(needleUrl && meta.url === needleUrl)
+          || (String(meta.company || "").toLowerCase() === needleCompany && String(meta.role || "").toLowerCase() === needleTitle);
+      } catch {
+        matched = false;
+      }
+    }
+    if (!matched) continue;
+    const text = fs.readFileSync(jdPath, "utf8").trim();
+    if (text.length >= 80) return text.split(/\b(similar offers|recommended by just join|oferty podobne)\b/i)[0].trim();
+  }
+  return "";
+}
 
 export interface ActivityEntry {
   id: string;
@@ -64,7 +94,8 @@ class CareerOpsManager {
   public getEvaluationForDisplay(job: { url: string; company: string; title: string; location: string; extra?: string }) {
     const cached = this.evalCache.get(job.url);
     if (cached?.matchVersion === JOB_MATCH_VERSION) return cached;
-    return { ...analyzeJobMatch(job), matchVersion: JOB_MATCH_VERSION };
+    const localJd = findLocalJobDescription(job);
+    return { ...analyzeJobMatch(job, localJd), matchVersion: JOB_MATCH_VERSION };
   }
 
   public getActivity() {
@@ -170,10 +201,14 @@ class CareerOpsManager {
     if (!force && cached?.matchVersion === JOB_MATCH_VERSION && cached?.evaluatedFrom === "full-jd") return cached;
 
     const fallback = `${job.title} at ${job.company}. Location: ${job.location || "Unknown"}. ${job.extra || ""}`;
-    const { text: fullJd, source: jdSource } = await getFullJobDescription(job.url, fallback);
+    const localJd = findLocalJobDescription(job);
+    const { text: fullJd, source: jdSource } = localJd
+      ? { text: localJd, source: "local-output" as const }
+      : await getFullJobDescription(job.url, fallback);
+    const usableJd = fullJd && fullJd.trim().length >= 80 ? fullJd : "";
     const result = {
-      ...analyzeJobMatch(job, jdSource === "browser-extract" ? fullJd : ""),
-      jdSource,
+      ...analyzeJobMatch(job, usableJd),
+      jdSource: usableJd ? jdSource : "fallback",
       matchVersion: JOB_MATCH_VERSION
     };
 
@@ -183,7 +218,10 @@ class CareerOpsManager {
   }
 
   public async rerankJobs(jobs: Array<{ url: string; company: string; title: string; location: string; extra?: string }>, fullJdLimit = 60) {
-    const preliminary = jobs.map((job) => ({ job, evaluation: analyzeJobMatch(job) }));
+    const preliminary = jobs.map((job) => {
+      const localJd = findLocalJobDescription(job);
+      return { job, evaluation: analyzeJobMatch(job, localJd) };
+    });
     for (const { job, evaluation } of preliminary) {
       this.evalCache.set(job.url, { ...evaluation, matchVersion: JOB_MATCH_VERSION });
     }
@@ -218,6 +256,7 @@ class CareerOpsManager {
     filename: string;
     factPass: boolean;
     pages: number;
+    primaryDomain?: string;
     tailoredWithAi: boolean;
     fallbackUsed?: boolean;
     fallbackReason?: string;
@@ -260,6 +299,9 @@ class CareerOpsManager {
           }
         );
       } catch (aiErr: any) {
+        if (aiErr instanceof DomainValidationError || aiErr?.name === "DomainValidationError") {
+          throw aiErr;
+        }
         fallbackReason = aiErr.message || String(aiErr);
         providerEvents.push(`[FALLBACK] AI tailoring failed: ${fallbackReason}`);
         op.summary = `[3/5] AI failed — generating a simple CV from cv.md...`;
@@ -273,6 +315,9 @@ class CareerOpsManager {
             op.summary = stage;
           });
         } catch (renderErr: any) {
+          if (renderErr instanceof DomainValidationError || renderErr?.name === "DomainValidationError") {
+            throw renderErr;
+          }
           fallbackReason = renderErr.message || String(renderErr);
           providerEvents.push(`[FALLBACK] AI CV render failed: ${fallbackReason}`);
           aiResult = null;
@@ -301,6 +346,7 @@ class CareerOpsManager {
         filename: path.basename(renderResult!.pdfPath),
         factPass: true,
         pages: renderResult!.metadata.pages,
+        primaryDomain: renderResult!.metadata.primaryDomain,
         tailoredWithAi,
         fallbackUsed: Boolean(fallbackReason),
         fallbackReason: fallbackReason || undefined,
@@ -319,6 +365,7 @@ class CareerOpsManager {
         filename: "",
         factPass: false,
         pages: 0,
+        primaryDomain: undefined,
         tailoredWithAi: false,
         fallbackUsed: false,
         aiProvider: options.providerId || "configured provider",

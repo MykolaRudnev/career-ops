@@ -64,3 +64,31 @@ test("mandatory language is distinguished from optional local language", () => {
   assert.equal(classify("Frontend React Engineer", "React and TypeScript required. German is nice-to-have.").matchClassification, "BEST MATCH");
   assert.equal(classify("Frontend React Engineer", "React and TypeScript required. Fluent German is mandatory.").matchClassification, "LOW MATCH");
 });
+
+test("Kotlin + React backend-primary fullstack is LOW MATCH", () => {
+  assert.equal(classify("Senior Fullstack React + Kotlin", "Kotlin services are required. Own backend APIs. React is a small UI layer.").matchClassification, "LOW MATCH");
+});
+
+test("Go + React backend-primary fullstack is LOW MATCH", () => {
+  assert.equal(classify("Senior Fullstack Go / React", "Go backend and Go microservices are required. React is used for a small UI.").matchClassification, "LOW MATCH");
+});
+
+test("70% Java / 30% React title is LOW MATCH", () => {
+  assert.equal(classify("Fullstack Engineer (70% Java / 30% React)", "Own Java backend services. React covers a minority of the work.").matchClassification, "LOW MATCH");
+});
+
+test("hybrid React + React Native title is SKIP", () => {
+  const result = classify("Senior Frontend Developer (React + React Native)", "Build React Native apps for iOS and Android.");
+  assert.equal(result.matchClassification, "SKIP");
+  assert.equal(result.signals.reactWebCount, 0);
+});
+
+test("generic frontend title without stack is not Best Match", () => {
+  assert.notEqual(classify("Senior Frontend Developer", "Join our product team in Berlin.").matchClassification, "BEST MATCH");
+});
+
+test("reason string is labeled and includes compatibility", () => {
+  const result = classify("Senior Frontend Developer", "Required: React, Next.js and TypeScript. Build accessible web applications and own frontend architecture.");
+  assert.match(result.reasonDisplay, /^BEST MATCH Reason: /);
+  assert.match(result.reasonDisplay, /92% compatible/);
+});

@@ -9,9 +9,11 @@ import { buildMasterCvPayload, candidateContactFields, loadParsedMasterCv, maste
 import {
   classifyDomain,
   domainProjectPool,
+  domainConsistencyValidation,
   enforceDomainConsistency,
-  DomainValidationError
+  selectKnowledgeFiles
 } from "./cvDomainRouting.mjs";
+import { countPdfPagesFromBuffer, parseLoggedPdfPageCount } from "./pdfPageCount.mjs";
 
 export interface TailoringDiff {
   summary_focus: string;
@@ -67,6 +69,8 @@ export interface TailorJobMetadata {
   llmTailoringExecuted: boolean;
   factValidation: string;
   pages: number;
+  primaryDomain: string;
+  secondaryDomains?: string[];
   tailoringDiff: TailoringDiff;
   htmlPath: string;
   pdfPath: string;
@@ -115,27 +119,23 @@ export function buildTailoringPrompt(
 ): string {
   const cvMdPath = path.join(WORKSPACE_ROOT, "cv.md");
   const projectsMdPath = path.join(WORKSPACE_ROOT, "knowledge", "projects.md");
-  const reactMdPath = path.join(WORKSPACE_ROOT, "knowledge", "react-frontend.md");
-  const magentoMdPath = path.join(WORKSPACE_ROOT, "knowledge", "magento-hyva.md");
-  const shopifyMdPath = path.join(WORKSPACE_ROOT, "knowledge", "shopify.md");
   const aiMdPath = path.join(WORKSPACE_ROOT, "knowledge", "ai-agentic-development.md");
 
   const cvMd = fs.readFileSync(cvMdPath, "utf8");
   const projectsMd = fs.existsSync(projectsMdPath) ? fs.readFileSync(projectsMdPath, "utf8") : "";
 
   const classified = classifyDomain(job.title, fullJd, job.extra || "");
-  const knowledgeDomains = new Set([classified.primary, ...classified.secondary]);
-  let domainKnowledge = "";
-  if (knowledgeDomains.has("SHOPIFY") && fs.existsSync(shopifyMdPath)) {
-    domainKnowledge += fs.readFileSync(shopifyMdPath, "utf8") + "\n\n";
+  const knowledgeFiles = selectKnowledgeFiles(classified.primary, classified.secondary, `${job.title}\n${fullJd}`);
+  const knowledgeByRole: string[] = [];
+  for (const file of knowledgeFiles) {
+    const abs = path.join(WORKSPACE_ROOT, file.path);
+    if (!fs.existsSync(abs)) continue;
+    const label = file.role === "primary"
+      ? `PRIMARY DOMAIN KNOWLEDGE (${file.domain})`
+      : `SECONDARY DOMAIN KNOWLEDGE (${file.domain} — explicitly justified by this JD)`;
+    knowledgeByRole.push(`${label}:\n${fs.readFileSync(abs, "utf8")}`);
   }
-  if (knowledgeDomains.has("MAGENTO_HYVA") && fs.existsSync(magentoMdPath)) {
-    domainKnowledge += fs.readFileSync(magentoMdPath, "utf8") + "\n\n";
-  }
-  const wantsReactKnowledge = ["REACT_FRONTEND", "FULLSTACK_TYPESCRIPT_NODE", "FRONTEND_LEAD", "PRODUCT_ENGINEERING", "GENERAL_FRONTEND"].some((d) => knowledgeDomains.has(d));
-  if (wantsReactKnowledge && fs.existsSync(reactMdPath)) {
-    domainKnowledge += fs.readFileSync(reactMdPath, "utf8") + "\n\n";
-  }
+  const domainKnowledge = knowledgeByRole.join("\n\n");
   const aiKnowledge = fs.existsSync(aiMdPath) ? fs.readFileSync(aiMdPath, "utf8") : "";
   const candidate = loadDashboardProfile();
   const primaryPool = domainProjectPool(classified.primary).map((p) => p.name).join(", ");
@@ -178,8 +178,8 @@ ${cvMd}
 VERIFIED COMMERCIAL PROJECTS CATALOG (Select 2-4 matching projects from this catalog ONLY):
 ${projectsMd}
 
-SUPPLEMENTARY DOMAIN KNOWLEDGE:
-${domainKnowledge.substring(0, 3000)}
+DOMAIN KNOWLEDGE (PRIMARY first; secondary only if the JD explicitly justifies it):
+${domainKnowledge.substring(0, 4500) || "None loaded."}
 
 AI-ASSISTED DEVELOPMENT KNOWLEDGE:
 ${aiKnowledge.substring(0, 2000)}
@@ -390,6 +390,7 @@ export async function runAiTailoring(
     }
   );
   const parsed = parseTailoringJson(response.content);
+  domainConsistencyValidation(parsed, job, fullJd);
   const { result } = enforceDomainConsistency(parsed, job, fullJd);
   result._durationMs = response.durationMs;
   result._modelUsed = response.model;
@@ -452,7 +453,13 @@ function factSourceArgs() {
   return args;
 }
 
-function renderHtmlAndPdf(tmpJsonPath: string, htmlPath: string, pdfPath: string, onProgress?: (stage: string) => void) {
+function parsePdfPageCount(stdout: string, pdfPath: string): number {
+  const logged = parseLoggedPdfPageCount(stdout);
+  if (logged) return logged;
+  return countPdfPagesFromBuffer(fs.readFileSync(pdfPath));
+}
+
+function renderHtmlAndPdf(tmpJsonPath: string, htmlPath: string, pdfPath: string, onProgress?: (stage: string) => void): { pageCount: number } {
   fs.mkdirSync(path.dirname(htmlPath), { recursive: true });
   fs.mkdirSync(path.dirname(pdfPath), { recursive: true });
   try {
@@ -467,10 +474,14 @@ function renderHtmlAndPdf(tmpJsonPath: string, htmlPath: string, pdfPath: string
   } catch (factErr: any) {
     throw new Error(`Fact Validation Failed: ${commandError(factErr)}`);
   }
-  if (onProgress) onProgress("Compiling ATS-Compliant 2-Page PDF...");
+  if (onProgress) onProgress("Compiling ATS-Compliant PDF...");
   try {
     const pdfSourceFlags = sourceArgs.filter((_, index) => index % 2 === 1).map((file) => `--source=${file}`);
-    execFileSync("node", ["generate-pdf.mjs", htmlPath, pdfPath, "--format=a4", ...pdfSourceFlags], { cwd: WORKSPACE_ROOT, stdio: "pipe" });
+    const pdfOut = execFileSync("node", ["generate-pdf.mjs", htmlPath, pdfPath, "--format=a4", ...pdfSourceFlags], {
+      cwd: WORKSPACE_ROOT,
+      stdio: "pipe"
+    });
+    return { pageCount: parsePdfPageCount(pdfOut.toString(), pdfPath) };
   } catch (pdfErr: any) {
     throw new Error(`Failed to render PDF: ${commandError(pdfErr)}`);
   }
@@ -498,13 +509,8 @@ export async function renderAndValidateTailoredCv(
   const parsedMaster = loadParsedMasterCv();
   const candidateSlug = candidateFileSlug(candidate.name);
 
-  const enforced = enforceDomainConsistency(aiResult, { ...job, extra: job.title }, fullJd);
-  if (!enforced.validation.ok) {
-    throw new DomainValidationError(
-      `DOMAIN VALIDATION FAILED — PDF not generated: ${enforced.validation.reasons.join("; ")}`,
-      enforced.validation
-    );
-  }
+  domainConsistencyValidation(aiResult, job, fullJd);
+  const enforced = enforceDomainConsistency(aiResult, job, fullJd);
   aiResult = enforced.result;
 
   // Setup outputs directory: outputs/<compSlug-titleSlug>/
@@ -561,7 +567,7 @@ export async function renderAndValidateTailoredCv(
   const outputHtmlPath = path.join(WORKSPACE_ROOT, "output", `cv-${candidateSlug}-${baseSlug}.html`);
   const outputPdfPath = path.join(WORKSPACE_ROOT, "output", `cv-${candidateSlug}-${baseSlug}.pdf`);
 
-  renderHtmlAndPdf(tmpJsonPath, localHtmlPath, localPdfPath, onProgress);
+  const { pageCount } = renderHtmlAndPdf(tmpJsonPath, localHtmlPath, localPdfPath, onProgress);
   fs.copyFileSync(localHtmlPath, outputHtmlPath);
   fs.copyFileSync(localPdfPath, outputPdfPath);
 
@@ -582,7 +588,9 @@ export async function renderAndValidateTailoredCv(
     aiModel: aiResult._modelUsed || "master",
     llmTailoringExecuted,
     factValidation: "PASS (0 unsupported claims)",
-    pages: 2,
+    pages: pageCount,
+    primaryDomain: aiResult.primary_domain || enforced.classified.primary,
+    secondaryDomains: aiResult.secondary_domains || enforced.classified.secondary,
     tailoringDiff: aiResult.tailoring_diff,
     htmlPath: outputHtmlPath,
     pdfPath: outputPdfPath

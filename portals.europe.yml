@@ -1,0 +1,32 @@
+# Additive Europe discovery lane. The existing portals.yml is intentionally untouched.
+max_posting_age_days: 30
+
+title_filter:
+  positive: [Frontend, Front-End, "Front End", React, Next.js, NextJS, TypeScript, "Product Engineer", Magento, Hyva, Hyvä, Shopify, Liquid, "Adobe Commerce", Fullstack, "Full Stack", Node.js, "Tech Lead", "Team Lead", "Engineering Lead"]
+  negative: [Junior, Trainee, "word:Intern", Internship, "React Native", Expo, Flutter, Android, iOS]
+
+job_boards:
+  - name: Jobgether Remote Europe
+    provider: jobgether
+    max_pages: 2
+    jobgether:
+      locations: [europe]
+      includeHybrid: true
+      queries: ["React TypeScript frontend", "Next.js frontend", "Product Engineer React", "Magento Hyva", "Shopify Liquid", "React Node.js fullstack"]
+    enabled: true
+
+  - name: Sweden JobTech Frontend
+    provider: jobtech-sweden
+    max_pages: 2
+    jobtech:
+      queries: [frontend, React, TypeScript, Next.js, Magento, Shopify]
+    enabled: true
+
+  - name: Adzuna High-income Europe
+    provider: adzuna
+    max_pages: 2
+    adzuna:
+      markets: [gb, de, nl, fr]
+      queries: ["frontend React", "Next.js TypeScript", Magento, Shopify]
+    enabled: false
+    notes: Set ADZUNA_APP_ID and ADZUNA_APP_KEY, then enable.

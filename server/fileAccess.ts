@@ -36,6 +36,7 @@ export interface PipelineJob {
   matchClassification?: "BEST MATCH" | "STRONG MATCH" | "POSSIBLE MATCH" | "LOW MATCH" | "SKIP";
   compatibilityTier?: "A" | "B" | "C" | "D";
   reason?: string;
+  reasonDisplay?: string;
   primaryStack?: string[];
   responsibilitySplit?: { frontend: string; backend: string; platform: string };
   evaluatedFrom?: "full-jd" | "pipeline-summary";

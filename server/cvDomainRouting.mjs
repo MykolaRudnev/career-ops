@@ -199,8 +199,25 @@ export const PROJECT_CATALOG = {
       aliases: ["3mk protection", "3mk.pl", "3mk"],
       tech: "Magento 2",
       description: "Storefront from scratch: homepage, category/PLP, cart, and custom UI focused on UX and conversion."
+    },
+    {
+      name: "ORBA",
+      aliases: ["orba"],
+      tech: "Magento 2",
+      description: "Front-end optimization, performance improvements, and user experience enhancements on a cosmetics Magento storefront."
     }
   ]
+};
+
+export const DOMAIN_KNOWLEDGE_FILES = {
+  SHOPIFY: "knowledge/shopify.md",
+  MAGENTO_HYVA: "knowledge/magento-hyva.md",
+  REACT_FRONTEND: "knowledge/react-frontend.md",
+  FULLSTACK_TYPESCRIPT_NODE: "knowledge/react-frontend.md",
+  FRONTEND_LEAD: "knowledge/react-frontend.md",
+  PRODUCT_ENGINEERING: "knowledge/react-frontend.md",
+  DELIVERY_TECHNICAL: "knowledge/react-frontend.md",
+  GENERAL_FRONTEND: "knowledge/react-frontend.md"
 };
 
 export const DOMAIN_PROJECT_POOLS = {
@@ -460,6 +477,60 @@ export function jdRequestsReact(text) {
   return /\breact(?:\.js|js)?\b|\bnext\.?(?:js)?\b/i.test(text || "");
 }
 
+export function jdRequestsShopify(text) {
+  return /\bshopify(?:\s+plus)?\b|\bliquid\b/i.test(text || "");
+}
+
+export function jdRequestsMagento(text) {
+  return /\bmagento(?:\s*2)?\b|\bhyv[aä]\b|\badobe commerce\b/i.test(text || "");
+}
+
+/**
+ * Secondary domains are allowed only when the JD explicitly names that stack.
+ * Generic words like "frontend" do not justify loading React knowledge on a Shopify vacancy.
+ */
+export function justifiedSecondaryDomains(primary, jdText = "", scores = {}) {
+  const text = String(jdText || "");
+  const out = [];
+  const add = (domain, ok) => {
+    if (!ok || !domain || domain === primary || out.includes(domain)) return;
+    if (!PRIMARY_DOMAINS.includes(domain)) return;
+    out.push(domain);
+  };
+
+  add("REACT_FRONTEND", jdRequestsReact(text));
+  add("SHOPIFY", jdRequestsShopify(text));
+  add("MAGENTO_HYVA", jdRequestsMagento(text));
+  add("FULLSTACK_TYPESCRIPT_NODE", /\bfull[ -]?stack\b/i.test(text) && /\bnode\.?(?:js)?\b/i.test(text));
+  add("FRONTEND_LEAD", (scores.FRONTEND_LEAD || 0) >= 2 && /\b(tech(?:nical)? lead|frontend lead|lead front-?end|staff|principal)\b/i.test(text));
+  add("PRODUCT_ENGINEERING", (scores.PRODUCT_ENGINEERING || 0) >= 2 && /\bproduct engineer/i.test(text));
+
+  if (primary === "FULLSTACK_TYPESCRIPT_NODE") add("REACT_FRONTEND", true);
+  if (primary === "FRONTEND_LEAD" && jdRequestsReact(text)) add("REACT_FRONTEND", true);
+
+  return out.slice(0, 3);
+}
+
+/**
+ * Load PRIMARY knowledge first. Secondary files are included only when justified.
+ * Competing platform files (Shopify vs Magento vs React) never load just because the JD says "frontend".
+ */
+export function selectKnowledgeFiles(primary, secondary = [], jdText = "") {
+  const justified = new Set(justifiedSecondaryDomains(primary, jdText));
+  const orderedSecondary = [...new Set([...(secondary || []), ...justified])].filter((d) => d !== primary && justified.has(d));
+  const files = [];
+  const seen = new Set();
+  const push = (domain, role) => {
+    const rel = DOMAIN_KNOWLEDGE_FILES[domain];
+    if (!rel || seen.has(rel)) return;
+    seen.add(rel);
+    files.push({ domain, path: rel, role });
+  };
+  push(primary, "primary");
+  for (const domain of orderedSecondary) push(domain, "secondary");
+  return files;
+}
+
 export function classifyDomain(title = "", jd = "", extra = "") {
   const titleText = `${title}`;
   const body = `${extra}\n${jd}`;
@@ -514,17 +585,11 @@ export function classifyDomain(title = "", jd = "", extra = "") {
     }
   }
 
-  const secondary = PRIMARY_DOMAINS.filter((domain) => domain !== primary && scores[domain] >= 2);
-  if (primary === "FULLSTACK_TYPESCRIPT_NODE" && !secondary.includes("REACT_FRONTEND")) {
-    secondary.unshift("REACT_FRONTEND");
-  }
-  if (primary === "FRONTEND_LEAD" && reactTitle && !secondary.includes("REACT_FRONTEND")) {
-    secondary.push("REACT_FRONTEND");
-  }
+  const secondary = justifiedSecondaryDomains(primary, all, scores);
 
   return {
     primary,
-    secondary: [...new Set(secondary)].slice(0, 3),
+    secondary,
     scores,
     shopifyTitle,
     magentoTitle,
@@ -584,14 +649,10 @@ export function validateDomainConsistency({ primaryDomain, projects = [], jdText
     if (reactOnlyCount > magentoCount) reasons.push("Magento CV has more React-only projects than Magento projects");
   }
 
-  if (primary === "REACT_FRONTEND") {
-    if (reactCount === 0) reasons.push("React CV contains no React/Next.js project");
-    if (shopifyCount > reactCount) reasons.push("React CV has more Shopify projects than React projects");
-    if (magentoCount > reactCount) reasons.push("React CV has more Magento projects than React projects");
-  }
-
-  if (primary === "FULLSTACK_TYPESCRIPT_NODE") {
-    if (reactCount === 0 && inPool === 0) reasons.push("Fullstack TypeScript CV contains no React/Node-relevant project");
+  if (primary === "REACT_FRONTEND" || primary === "FULLSTACK_TYPESCRIPT_NODE") {
+    if (reactCount === 0) reasons.push(`${primary === "FULLSTACK_TYPESCRIPT_NODE" ? "Fullstack TypeScript" : "React"} CV contains no React/Next.js project`);
+    if (shopifyCount > reactCount) reasons.push(`${primary} CV has more Shopify projects than React projects`);
+    if (magentoCount > reactCount) reasons.push(`${primary} CV has more Magento projects than React projects`);
   }
 
   return { ok: reasons.length === 0, reasons, primaryDomain: primary, counts };
@@ -740,60 +801,45 @@ export class DomainValidationError extends Error {
 }
 
 /**
- * Fail closed: if the model picked the wrong domain pool, replace from whitelist.
- * Throws if the corrected list still fails (should not happen for known pools).
+ * Post-LLM gate: JD classification is authoritative.
+ * Wrong project pools FAIL generation — they are not silently rewritten.
+ */
+export function domainConsistencyValidation(aiResult, job = {}, fullJd = "") {
+  const classified = classifyDomain(job.title || job.role || "", fullJd, job.extra || "");
+  const primary = classified.primary;
+  const validation = validateDomainConsistency({
+    primaryDomain: primary,
+    projects: aiResult?.projects || [],
+    jdText: `${job.title || job.role || ""}\n${fullJd}`
+  });
+  if (!validation.ok) {
+    throw new DomainValidationError(
+      `DOMAIN CONSISTENCY FAILED — PDF not generated. PRIMARY=${primary}. ${validation.reasons.join("; ")}`,
+      { ...validation, classified, primaryDomain: primary, secondaryDomains: classified.secondary }
+    );
+  }
+  return { ...validation, ok: true, classified, primaryDomain: primary, secondaryDomains: classified.secondary };
+}
+
+/**
+ * Stamp the classified primary domain onto an LLM result after domainConsistencyValidation().
+ * Does not rewrite project selection.
  */
 export function enforceDomainConsistency(aiResult, job = {}, fullJd = "") {
-  const classified = classifyDomain(job.title || job.role || "", fullJd, job.extra || "");
-  const aiPrimary = normalizePrimaryDomain(aiResult?.primary_domain);
-  const primary = aiPrimary || classified.primary;
-  const secondary = [...new Set([
-    ...(Array.isArray(aiResult?.secondary_domains) ? aiResult.secondary_domains.map(normalizePrimaryDomain).filter(Boolean) : []),
-    ...classified.secondary
-  ].filter((d) => d && d !== primary))];
-
-  let projects = Array.isArray(aiResult?.projects) ? aiResult.projects : [];
-  let validation = validateDomainConsistency({
-    primaryDomain: primary,
-    projects,
-    jdText: `${job.title || ""}\n${fullJd}`
-  });
-  let corrected = false;
-
-  if (!validation.ok) {
-    const replacement = selectProjectsForDomain(primary, {
-      title: job.title || job.role || "",
-      jd: fullJd,
-      company: job.company || ""
-    });
-    projects = replacement.projects;
-    validation = validateDomainConsistency({
-      primaryDomain: primary,
-      projects,
-      jdText: `${job.title || ""}\n${fullJd}`
-    });
-    corrected = true;
-    if (!validation.ok) {
-      throw new DomainValidationError(
-        `DOMAIN VALIDATION FAILED after whitelist correction: ${validation.reasons.join("; ")}`,
-        validation
-      );
-    }
-  }
+  const check = domainConsistencyValidation(aiResult, job, fullJd);
+  const primary = check.primaryDomain;
+  const secondary = check.secondaryDomains;
+  const projects = Array.isArray(aiResult?.projects) ? aiResult.projects : [];
 
   let summary = aiResult.summary;
   let skills = aiResult.skills;
   let headline = aiResult.headline;
-  let experience = Array.isArray(aiResult.experience) ? aiResult.experience : [];
-  if (corrected || !summaryMatchesDomain(summary, primary)) {
+  if (!summaryMatchesDomain(summary, primary)) {
     summary = summaryForDomain(primary);
     headline = headlineForDomain(primary);
   }
-  if (corrected || !skillsMatchDomain(skills, primary)) {
+  if (!skillsMatchDomain(skills, primary)) {
     skills = skillsForDomain(primary);
-  }
-  if (corrected && experience.length) {
-    experience = selectExperienceBulletsForDomain(primary, experience);
   }
 
   const tailoring_diff = {
@@ -801,16 +847,6 @@ export function enforceDomainConsistency(aiResult, job = {}, fullJd = "") {
     primary_domain: primary,
     secondary_domains: secondary
   };
-  if (corrected) {
-    tailoring_diff.projects_selected = projects.map((p) => ({
-      name: p.name,
-      reason: `Whitelist correction for PRIMARY=${primary}`
-    }));
-    tailoring_diff.experience_emphasis = [
-      aiResult.tailoring_diff?.experience_emphasis,
-      `Domain validator replaced out-of-pool projects so PRIMARY=${primary} stays dominant.`
-    ].filter(Boolean).join(" ");
-  }
 
   return {
     result: {
@@ -820,13 +856,12 @@ export function enforceDomainConsistency(aiResult, job = {}, fullJd = "") {
       headline,
       summary,
       skills,
-      experience: experience.length ? experience : aiResult.experience,
       projects,
       tailoring_diff
     },
-    validation,
-    classified,
-    corrected
+    validation: check,
+    classified: check.classified,
+    corrected: false
   };
 }
 
