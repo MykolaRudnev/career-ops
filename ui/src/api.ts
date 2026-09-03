@@ -4,6 +4,7 @@ export interface PipelineJob {
   company: string;
   title: string;
   location: string;
+  countries: string[];
   workModel: string;
   date: string;
   status: "pending" | "reviewed" | "applied" | "skipped";

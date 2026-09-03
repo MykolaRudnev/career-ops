@@ -280,6 +280,28 @@
   border-color: var(--accent-cyan);
 }
 
+.country-filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.country-filter {
+  color: #e2e8f0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 9px;
+  max-width: 190px;
+}
+
+.country-filter:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+}
+
 .tab-group {
   display: flex;
   background: var(--bg-primary);

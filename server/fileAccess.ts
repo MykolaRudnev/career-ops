@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { resolveMasterPdfPath } from "./profile.ts";
+import { inferJobCountries } from "./jobCountry.mjs";
 
 export const WORKSPACE_ROOT = path.resolve(process.cwd());
 
@@ -23,6 +24,7 @@ export interface PipelineJob {
   company: string;
   title: string;
   location: string;
+  countries: string[];
   workModel: string;
   date: string;
   status: "pending" | "reviewed" | "applied" | "skipped";
@@ -121,6 +123,7 @@ export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJo
           company,
           title,
           location,
+          countries: inferJobCountries(location),
           workModel,
           date,
           status,

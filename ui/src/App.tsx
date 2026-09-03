@@ -59,6 +59,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<"pending" | "processed">("pending");
   const [searchQuery, setSearchQuery] = useState("");
   const [modelFilter, setModelFilter] = useState<"ALL" | "Remote" | "Hybrid" | "Office">("ALL");
+  const [countryFilter, setCountryFilter] = useState("ALL");
   const [matchCategory, setMatchCategory] = useState<
     "ALL" | "BEST_MATCH" | "REACT_NEXT" | "SHOPIFY" | "MAGENTO" | "NODE" | "SENIOR_LEAD"
   >("ALL");
@@ -349,6 +350,12 @@ export function App() {
     return t.includes("senior") || t.includes("lead") || t.includes("principal") || t.includes("staff");
   }).length;
 
+  const countryCounts = currentList.reduce((counts, job) => {
+    for (const country of job.countries || ["Unknown"]) counts.set(country, (counts.get(country) || 0) + 1);
+    return counts;
+  }, new Map<string, number>());
+  const countryOptions = [...countryCounts.entries()].sort(([a], [b]) => a.localeCompare(b));
+
   const filteredJobs = currentList.filter((job) => {
     const q = searchQuery.toLowerCase();
     const matchSearch =
@@ -356,6 +363,7 @@ export function App() {
       job.company.toLowerCase().includes(q) ||
       job.location.toLowerCase().includes(q);
     const matchModel = modelFilter === "ALL" || job.workModel === modelFilter;
+    const matchCountry = countryFilter === "ALL" || (job.countries || ["Unknown"]).includes(countryFilter);
 
     let matchCat = true;
     if (matchCategory === "BEST_MATCH") {
@@ -377,7 +385,7 @@ export function App() {
       matchCat = t.includes("senior") || t.includes("lead") || t.includes("principal") || t.includes("staff");
     }
 
-    return matchSearch && matchModel && matchCat;
+    return matchSearch && matchModel && matchCountry && matchCat;
   }).sort((a, b) => (b.compatibilityPercent || 0) - (a.compatibilityPercent || 0));
 
   return (
@@ -633,20 +641,20 @@ export function App() {
           </div>
           <div className="stat-box">
             <span className="stat-label">Total Discovered</span>
-            <span className="stat-value">{status?.lastScan?.totalDiscovered || 7434}</span>
+            <span className="stat-value">{status?.lastScan?.totalDiscovered ?? 0}</span>
           </div>
           <div className="stat-box">
             <span className="stat-label">Filtered</span>
-            <span className="stat-value">{status?.lastScan?.totalFiltered || 6631}</span>
+            <span className="stat-value">{status?.lastScan?.totalFiltered ?? 0}</span>
           </div>
           <div className="stat-box">
             <span className="stat-label">Duplicates</span>
-            <span className="stat-value">{status?.lastScan?.totalDuplicates || 165}</span>
+            <span className="stat-value">{status?.lastScan?.totalDuplicates ?? 0}</span>
           </div>
           <div className="stat-box">
             <span className="stat-label">New Eligible Added</span>
             <span className="stat-value" style={{ color: "#34d399" }}>
-              {status?.lastScan?.totalAdded || 638}
+              {status?.lastScan?.totalAdded ?? 0}
             </span>
           </div>
         </div>
@@ -733,7 +741,16 @@ export function App() {
               </button>
             </div>
 
-            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+              <label className="country-filter-label">
+                Country:
+                <select className="country-filter" value={countryFilter} onChange={(event) => setCountryFilter(event.target.value)}>
+                  <option value="ALL">All countries ({currentList.length})</option>
+                  {countryOptions.map(([country, count]) => (
+                    <option key={country} value={country}>{country} ({count})</option>
+                  ))}
+                </select>
+              </label>
               <button className="btn btn-outline btn-sm" disabled={isReranking} onClick={handleRerank} title="Re-score all active jobs and load full JDs for the leading contenders">
                 {isReranking ? <span className="spinner" /> : <RefreshCw size={13} />} Re-rank
               </button>
