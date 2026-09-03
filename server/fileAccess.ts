@@ -246,7 +246,7 @@ export function getTailoredCvs(): TailoredCvFile[] {
   const cvs: TailoredCvFile[] = [];
 
   for (const file of files) {
-    if (file.endsWith(".pdf") && file.startsWith("cv-")) {
+    if (file.endsWith(".pdf") && file.startsWith("cv-") && !file.includes("-master.")) {
       const full = path.join(outDir, file);
       const stat = fs.statSync(full);
       cvs.push({

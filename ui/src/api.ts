@@ -163,7 +163,14 @@ export async function generateTailoredCv(job: PipelineJob, providerId: string, m
     body: JSON.stringify({ job, providerId, model })
   });
   const data = await res.json();
-  if (!res.ok || !data.success) throw new Error(data.error || "Tailoring failed");
+  if (!res.ok && !data?.success) throw new Error(data.error || "Tailoring failed");
+  return data;
+}
+
+export async function generateMasterCv(): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/master-cv`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || "Master CV generation failed");
   return data;
 }
 
@@ -256,6 +263,8 @@ export interface TailoringDiffData {
     projects_selected: Array<{ name: string; reason: string }>;
     jd_keywords_matched: string[];
     experience_emphasis: string;
+    primary_domain?: string;
+    secondary_domains?: string[];
   };
   htmlPath: string;
   pdfPath: string;

@@ -165,6 +165,15 @@ app.post("/api/tailor-cv", async (req, res) => {
   }
 });
 
+app.post("/api/master-cv", (req, res) => {
+  try {
+    const result = careerOps.generateMasterCv();
+    res.status(result.success ? 200 : 500).json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 5b. Get Tailoring Diff and Metadata
 app.get("/api/tailor-cv/diff", (req, res) => {
   try {

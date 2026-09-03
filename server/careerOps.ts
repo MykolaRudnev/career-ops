@@ -6,9 +6,10 @@ import {
   getFullJobDescription,
   runAiTailoring,
   renderAndValidateTailoredCv,
-  type TailoringDiff,
-  type TailorJobMetadata
+  renderMasterCv,
+  type TailoringDiff
 } from "./aiTailor.ts";
+import { buildSimpleTailorResult } from "./cvFromMaster.mjs";
 import { analyzeJobMatch } from "./jobMatch.mjs";
 
 const JOB_MATCH_VERSION = 2;
@@ -218,6 +219,8 @@ class CareerOpsManager {
     factPass: boolean;
     pages: number;
     tailoredWithAi: boolean;
+    fallbackUsed?: boolean;
+    fallbackReason?: string;
     aiProvider: string;
     aiModel: string;
     tailoringDiff?: TailoringDiff;
@@ -230,59 +233,81 @@ class CareerOpsManager {
 
     const op = this.recordOpStart("Generate Tailored CV", `Starting AI tailoring for ${job.company} (${job.title})`);
     const providerEvents: string[] = [];
+    let fallbackReason = "";
 
     try {
-      // 1. Stage 1/5: Loading Job Description
       op.summary = `[1/5] Loading Full Job Description for ${job.company}...`;
       const fallbackText = `${job.title} at ${job.company}. Location: ${job.location || "Remote"}. ${job.extra || ""}`;
       const { text: fullJd, source: jdSource } = await getFullJobDescription(job.url, fallbackText);
 
-      // 2. Stage 2/5: Loading Candidate Knowledge
       op.summary = `[2/5] Loading Candidate Ground Truth & Projects...`;
 
-      // 3. Stage 3/5: AI Tailoring
       const selectedProvider = options.providerId || "configured provider";
-      op.summary = `[3/5] AI Tailoring with ${selectedProvider}...`;
-      const aiResult = await runAiTailoring(
-        job,
-        fullJd,
-        options,
-        (stage) => {
-          op.summary = `[3/5] ${stage}`;
-        },
-        (event) => {
-          const line = `[AI ${event.type.toUpperCase()}] ${event.message}`;
-          providerEvents.push(line);
-          op.stdout = providerEvents.join("\n");
-        }
-      );
+      let aiResult: Awaited<ReturnType<typeof runAiTailoring>> | null = null;
+      try {
+        op.summary = `[3/5] AI Tailoring with ${selectedProvider}...`;
+        aiResult = await runAiTailoring(
+          job,
+          fullJd,
+          options,
+          (stage) => {
+            op.summary = `[3/5] ${stage}`;
+          },
+          (event) => {
+            const line = `[AI ${event.type.toUpperCase()}] ${event.message}`;
+            providerEvents.push(line);
+            op.stdout = providerEvents.join("\n");
+          }
+        );
+      } catch (aiErr: any) {
+        fallbackReason = aiErr.message || String(aiErr);
+        providerEvents.push(`[FALLBACK] AI tailoring failed: ${fallbackReason}`);
+        op.summary = `[3/5] AI failed — generating a simple CV from cv.md...`;
+      }
 
-      // 4 & 5. Stages 4/5 & 5/5: Fact Validation & PDF Generation
-      op.summary = `[4/5] Running Fact Validation (verify-cv-facts.mjs)...`;
-      const renderResult = await renderAndValidateTailoredCv(
-        job,
-        fullJd,
-        aiResult,
-        (stage) => {
+      let renderResult: Awaited<ReturnType<typeof renderAndValidateTailoredCv>>;
+      if (aiResult) {
+        try {
+          op.summary = `[4/5] Running Fact Validation (verify-cv-facts.mjs)...`;
+          renderResult = await renderAndValidateTailoredCv(job, fullJd, aiResult, (stage) => {
+            op.summary = stage;
+          });
+        } catch (renderErr: any) {
+          fallbackReason = renderErr.message || String(renderErr);
+          providerEvents.push(`[FALLBACK] AI CV render failed: ${fallbackReason}`);
+          aiResult = null;
+        }
+      }
+
+      if (!aiResult) {
+        op.summary = `[4/5] Rendering simple CV from cv.md...`;
+        const simple = buildSimpleTailorResult(job);
+        renderResult = await renderAndValidateTailoredCv(job, fullJd, simple, (stage) => {
           op.summary = stage;
-        }
-      );
+        });
+      }
 
-      const combinedLogs = `--- PROVIDER EVENTS ---\n${providerEvents.join("\n")}\n--- JD SOURCE ---\n${jdSource} (${fullJd.length} chars)\n--- AI PROVIDER ---\n${renderResult.metadata.provider}\n--- AI MODEL ---\n${renderResult.metadata.aiModel} (${aiResult._durationMs}ms)\n--- FACT CHECK ---\n${renderResult.metadata.factValidation}\n--- METADATA ---\n${JSON.stringify(renderResult.metadata.tailoringDiff, null, 2)}`;
-      this.recordOpEnd(op, "success", combinedLogs, "", `Tailored CV generated with ${renderResult.metadata.aiProvider} for ${job.company} (${renderResult.metadata.pages} pages)`);
+      const tailoredWithAi = !fallbackReason;
+      const summary = tailoredWithAi
+        ? `Tailored CV generated with ${renderResult!.metadata.aiProvider} for ${job.company} (${renderResult!.metadata.pages} pages)`
+        : `AI tailoring failed; generated a simple CV from cv.md for ${job.company}`;
+      const combinedLogs = `--- PROVIDER EVENTS ---\n${providerEvents.join("\n")}\n--- JD SOURCE ---\n${jdSource} (${fullJd.length} chars)\n--- FALLBACK ---\n${fallbackReason || "none"}\n--- AI PROVIDER ---\n${renderResult!.metadata.provider}\n--- FACT CHECK ---\n${renderResult!.metadata.factValidation}\n--- METADATA ---\n${JSON.stringify(renderResult!.metadata.tailoringDiff, null, 2)}`;
+      this.recordOpEnd(op, "success", combinedLogs, "", summary);
 
       return {
         success: true,
-        htmlPath: renderResult.htmlPath,
-        pdfPath: renderResult.pdfPath,
-        filename: path.basename(renderResult.pdfPath),
+        htmlPath: renderResult!.htmlPath,
+        pdfPath: renderResult!.pdfPath,
+        filename: path.basename(renderResult!.pdfPath),
         factPass: true,
-        pages: renderResult.metadata.pages,
-        tailoredWithAi: true,
-        aiProvider: renderResult.metadata.aiProvider,
-        aiModel: renderResult.metadata.aiModel,
-        tailoringDiff: renderResult.metadata.tailoringDiff,
-        jobDir: renderResult.jobDir
+        pages: renderResult!.metadata.pages,
+        tailoredWithAi,
+        fallbackUsed: Boolean(fallbackReason),
+        fallbackReason: fallbackReason || undefined,
+        aiProvider: renderResult!.metadata.aiProvider,
+        aiModel: renderResult!.metadata.aiModel,
+        tailoringDiff: renderResult!.metadata.tailoringDiff,
+        jobDir: renderResult!.jobDir
       };
     } catch (err: any) {
       const msg = err.stdout ? err.stdout.toString() : err.message;
@@ -295,10 +320,35 @@ class CareerOpsManager {
         factPass: false,
         pages: 0,
         tailoredWithAi: false,
+        fallbackUsed: false,
         aiProvider: options.providerId || "configured provider",
         aiModel: options.model || "default",
         error: String(msg)
       };
+    }
+  }
+
+  public generateMasterCv(): {
+    success: boolean;
+    htmlPath: string;
+    pdfPath: string;
+    filename: string;
+    error?: string;
+  } {
+    if (this.currentOp) {
+      throw new Error(`Another operation is currently running: ${this.currentOp.name}`);
+    }
+    const op = this.recordOpStart("Generate Master CV", "Rendering ATS PDF from cv.md");
+    try {
+      const result = renderMasterCv((stage) => {
+        op.summary = stage;
+      });
+      this.recordOpEnd(op, "success", result.pdfPath, "", `Master ATS CV generated: ${result.filename}`);
+      return { success: true, ...result };
+    } catch (err: any) {
+      const msg = err.message || String(err);
+      this.recordOpEnd(op, "failed", "", msg, `Master CV generation failed: ${msg}`);
+      return { success: false, htmlPath: "", pdfPath: "", filename: "", error: msg };
     }
   }
 }

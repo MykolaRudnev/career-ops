@@ -89,6 +89,8 @@
 ---
 
 ## Tailoring Rules for React / Next.js Vacancies
+- **PRIMARY DOMAIN:** `REACT_FRONTEND` (or `FULLSTACK_TYPESCRIPT_NODE` when the vacancy is frontend-heavy React + Node/TypeScript).
 - **Headline Priority:** `Senior Frontend Developer | React | Next.js | TypeScript | Product UI`
-- **Project Selection:** Choose 2–4 of the above verified projects (`ponadczasowi.pl`, `copernicspace.com`, `hrk.pl`, `pmicareers.pl`, `learningspace.app`, `carneoo.de`) matching the vacancy focus (e-commerce, marketplace, SaaS, or content).
-- **Skill Ordering:** Prioritize React, Next.js, TypeScript, SSR/ISR/SSG, Core Web Vitals, and Tailwind CSS.
+- **Summary:** "Senior Frontend Developer specializing in React, Next.js and TypeScript..."
+- **Project whitelist:** ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de. Select **3 React projects**; optionally 1 e-commerce project if the JD is storefront-related. Do not add Shopify-specific or Magento/Hyvä projects unless the JD is explicitly relevant.
+- **Skills:** React, Next.js, TypeScript, JavaScript, HTML/CSS, SSR/ISR/SSG, REST, GraphQL, Core Web Vitals, accessibility. Do not prominently show Shopify or Magento if they are irrelevant.

@@ -11,6 +11,7 @@ import {
   isBestMatchOffer,
   evaluateJob,
   generateTailoredCv,
+  generateMasterCv,
   updateJobStatus,
   openTarget,
   fetchTailoringDiff,
@@ -68,6 +69,7 @@ export function App() {
   const [isReranking, setIsReranking] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState<string | null>(null);
   const [isTailoring, setIsTailoring] = useState<string | null>(null);
+  const [isGeneratingMaster, setIsGeneratingMaster] = useState(false);
   const [viewingDiff, setViewingDiff] = useState<TailoringDiffData | null>(null);
   const [isLoadingDiff, setIsLoadingDiff] = useState(false);
   const [showLogOutput, setShowLogOutput] = useState(false);
@@ -235,7 +237,11 @@ export function App() {
     try {
       const result = await generateTailoredCv(job, selectedProviderId, selectedModel);
       if (result.success) {
-        showNotification(`Tailored CV generated with ${result.aiProvider}: ${result.filename} (${result.pages} pages)`);
+        if (result.fallbackUsed) {
+          showNotification(`AI could not tailor this role. Generated a simple CV from cv.md: ${result.filename}`);
+        } else {
+          showNotification(`Tailored CV generated with ${result.aiProvider}: ${result.filename} (${result.pages} pages)`);
+        }
         await loadData();
         if (result.tailoringDiff) {
           const diffData: TailoringDiffData = {
@@ -247,7 +253,7 @@ export function App() {
             generatedAt: new Date().toISOString(),
             aiProvider: result.aiProvider || selectedProvider?.name || selectedProviderId,
             aiModel: result.aiModel || selectedModel,
-            llmTailoringExecuted: true,
+            llmTailoringExecuted: !result.fallbackUsed,
             factValidation: "PASS (0 unsupported claims)",
             pages: result.pages,
             tailoringDiff: result.tailoringDiff,
@@ -263,6 +269,20 @@ export function App() {
       showNotification(`Error generating CV: ${e.message}`);
     } finally {
       setIsTailoring(null);
+    }
+  };
+
+  const handleGenerateMasterCv = async () => {
+    setIsGeneratingMaster(true);
+    showNotification("Rendering ATS PDF from cv.md...");
+    try {
+      const result = await generateMasterCv();
+      await loadData();
+      showNotification(`Simple ATS CV generated from cv.md: ${result.filename}`);
+    } catch (e: any) {
+      showNotification(`Master CV generation failed: ${e.message}`);
+    } finally {
+      setIsGeneratingMaster(false);
     }
   };
 
@@ -507,6 +527,10 @@ export function App() {
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
             <button className="btn btn-secondary btn-sm" onClick={() => handleOpen("master-cv")}>
               <FileText size={14} /> Open Master CV (cv.md)
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={handleGenerateMasterCv} disabled={isGeneratingMaster || isTailoring !== null}>
+              {isGeneratingMaster ? <span className="spinner" /> : <FileCheck size={14} />}
+              {isGeneratingMaster ? "Rendering..." : "Generate ATS PDF from cv.md"}
             </button>
             {status?.masterCv.pdfExists && (
               <button className="btn btn-secondary btn-sm" onClick={() => handleOpen("master-pdf")}>
@@ -1101,6 +1125,12 @@ export function App() {
                 <div><strong>Provider:</strong> {viewingDiff.aiProvider}</div>
                 <div><strong>Fact Check:</strong> <span style={{ color: "#34d399" }}>{viewingDiff.factValidation}</span></div>
                 <div><strong>Page Budget:</strong> {viewingDiff.pages} pages</div>
+                {viewingDiff.tailoringDiff?.primary_domain && (
+                  <div>
+                    <strong>Primary domain:</strong>{" "}
+                    <span style={{ color: "#c084fc" }}>{viewingDiff.tailoringDiff.primary_domain}</span>
+                  </div>
+                )}
               </div>
 
               {/* Summary Focus */}

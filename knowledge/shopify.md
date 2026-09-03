@@ -89,6 +89,9 @@
 ---
 
 ## Tailoring Rules for Shopify Vacancies
+- **PRIMARY DOMAIN:** `SHOPIFY` (required). React/Next.js may be secondary only when the JD explicitly asks for it.
 - **Headline Priority:** `Senior Shopify / Front-End Developer | Liquid | JavaScript | E-commerce`
-- **Project Selection:** Highlight 2–4 of the verified Shopify projects (`Glasy.pl`, `Ascent`, `Warmsome`, `Berg's`, `Pixel25`). Note the Diamandia caveat if referenced.
-- **Skill Ordering:** Prioritize Shopify, Liquid, Shopify Themes, Custom Sections & Blocks, JSON Templates, Shopify Admin, Core Web Vitals, and Responsive Design.
+- **Summary:** "Frontend / Shopify Developer..." or "Senior E-Commerce Frontend Developer..." — never the generic React summary.
+- **Project whitelist (dominant):** Glasy.pl, Ascent, Warmsome, Pixel25, Berg's, Diamandia (caveat required). Select **3 Shopify projects**; add at most 1 supporting React e-commerce project if the JD requires React/Next.js **and** Shopify evidence alone is insufficient. Shopify projects must remain the majority (≥75%).
+- **Do not normally select:** ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de.
+- **Skills:** Shopify, Liquid, Custom Sections, JSON Templates, Shopify Admin, JavaScript, HTML/CSS, REST, GraphQL, Responsive, CRO. Do not prominently show Magento/Hyvä unless the JD values multi-platform work.
