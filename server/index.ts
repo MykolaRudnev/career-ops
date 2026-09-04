@@ -15,6 +15,9 @@ import {
 import { careerOps } from "./careerOps.ts";
 import { aiProviderRegistry } from "./ai/providerRegistry.ts";
 import { loadDashboardProfile } from "./profile.ts";
+import { createManualJob, loadManualJobs } from "./manualJobs.ts";
+import { operationManager } from "./operations.ts";
+import { applicationCoverContext, loadCoverLetter, saveCoverLetterEdit } from "./coverLetter.ts";
 
 const app = express();
 const PORT = 3001;
@@ -25,7 +28,7 @@ app.use(cors({
   methods: ["GET", "POST", "PUT"]
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: "2mb" }));
 
 // AI providers are backend-owned allowlisted implementations; the browser never supplies commands.
 app.get("/api/ai/providers", async (req, res) => {
@@ -158,8 +161,109 @@ app.post("/api/tailor-cv", async (req, res) => {
     if (!job || !job.company || !job.title) {
       return res.status(400).json({ success: false, error: "Missing job company or title" });
     }
-    const result = await careerOps.generateTailoredCv(job, { providerId, model });
-    res.json(result);
+    const operation = careerOps.startTailoredCv(job, { providerId, model });
+    res.status(202).json({ success: true, operation });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Cover Letters are deliberately on-demand. No scan, evaluation, CV, manual-job,
+// or apply endpoint calls this route implicitly.
+app.post("/api/cover-letter/generate", (req, res) => {
+  try {
+    const { job, providerId, model } = req.body || {};
+    if (!job?.id || !job?.company || !job?.title) {
+      return res.status(400).json({ success: false, error: "Missing job id, company, or title" });
+    }
+    const operation = careerOps.startCoverLetter(job, { providerId, model });
+    res.status(202).json({ success: true, operation });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/cover-letter/status", (req, res) => {
+  try {
+    const { job } = req.body || {};
+    if (!job?.company || !job?.title) return res.status(400).json({ success: false, error: "Missing job" });
+    res.json({ success: true, artifact: loadCoverLetter(job) });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.put("/api/cover-letter", (req, res) => {
+  try {
+    const { job, content } = req.body || {};
+    if (!job?.company || !job?.title) return res.status(400).json({ success: false, error: "Missing job" });
+    res.json({ success: true, artifact: saveCoverLetterEdit(job, content) });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get("/api/cover-letter/download", (req, res) => {
+  const job = { company: String(req.query.company || ""), title: String(req.query.title || "") };
+  const artifact = loadCoverLetter(job);
+  if (!artifact) return res.status(404).json({ success: false, error: "Cover Letter not found" });
+  res.download(artifact.textPath, "cover-letter.txt");
+});
+
+app.post("/api/cover-letter/application-context", (req, res) => {
+  try {
+    const { job, maxChars } = req.body || {};
+    const content = applicationCoverContext(job || {}, Number(maxChars) || 0);
+    if (!content) return res.status(404).json({ success: false, error: "Cover Letter not found" });
+    res.json({ success: true, content });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get("/api/operations", (_req, res) => {
+  res.json({ success: true, operations: operationManager.list() });
+});
+
+app.get("/api/operations/:operationId", (req, res) => {
+  const operation = operationManager.get(req.params.operationId);
+  if (!operation) return res.status(404).json({ success: false, error: "Operation not found" });
+  res.json({ success: true, operation });
+});
+
+app.post("/api/operations/:operationId/cancel", (req, res) => {
+  try {
+    const operation = operationManager.cancel(req.params.operationId);
+    res.json({ success: true, operation });
+  } catch (err: any) {
+    res.status(404).json({ success: false, error: err.message });
+  }
+});
+
+app.get("/api/manual-jobs", (_req, res) => {
+  res.json({ success: true, jobs: loadManualJobs() });
+});
+
+app.post("/api/manual-jobs", async (req, res) => {
+  try {
+    const { job: input, addAnyway, generateCv, providerId, model } = req.body || {};
+    const created = await createManualJob(input || {}, { addAnyway: addAnyway === true });
+    if (!created.created) {
+      return res.status(409).json({ success: false, duplicate: true, existingJobs: created.duplicates });
+    }
+    const job = created.job!;
+    const evaluation = await careerOps.evaluateJob(job);
+    const operation = generateCv === true ? careerOps.startTailoredCv(job, { providerId, model }) : undefined;
+    res.status(201).json({ success: true, job: { ...job, ...evaluation }, evaluation, operation });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/master-cv", (req, res) => {
+  try {
+    const result = careerOps.generateMasterCv();
+    res.status(result.success ? 200 : 500).json(result);
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -181,13 +285,13 @@ app.get("/api/tailor-cv/diff", (req, res) => {
 });
 
 // 6. Update Job Status in pipeline.md
-app.post("/api/pipeline/status", (req, res) => {
+app.post("/api/pipeline/status", async (req, res) => {
   try {
     const { url, status } = req.body;
     if (!url || !status) {
       return res.status(400).json({ success: false, error: "Missing url or status" });
     }
-    const updated = updatePipelineStatus(url, status);
+    const updated = await updatePipelineStatus(url, status);
     res.json({ success: updated });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

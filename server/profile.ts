@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import * as yaml from "js-yaml";
+import { parseCvMarkdown } from "./cvFromMaster.mjs";
 
 const WORKSPACE_ROOT = path.resolve(process.cwd());
 
@@ -37,26 +38,17 @@ export function loadDashboardProfile(): DashboardProfile {
   };
 }
 
-function section(markdown: string, heading: string) {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return markdown.match(new RegExp(`^## ${escaped}\\s*$([\\s\\S]*?)(?=^## |\\Z)`, "mi"))?.[1] || "";
-}
-
 export function loadCvSupportingSections() {
-  let markdown = "";
-  try { markdown = fs.readFileSync(path.join(WORKSPACE_ROOT, "cv.md"), "utf8"); } catch { /* empty */ }
-  const parseRows = (body: string) => body.split("\n").map((line) => {
-    const match = line.match(/^\s*-\s+\*\*(.+?)\*\*\s*--\s*(.*?)(?:\s+\(([^)]+)\))?\s*$/);
-    if (!match) return null;
-    return { title: match[1].trim(), org: match[2].trim(), year: (match[3] || "").trim() };
-  }).filter(Boolean);
-  const education = parseRows(section(markdown, "Education"));
-  const certifications = parseRows(section(markdown, "Courses & Continuous Learning"));
-  const languages = section(markdown, "Languages").split("\n").map((line) => {
-    const match = line.match(/^\s*-\s+\*\*(.+?):\*\*\s*(.+)$/);
-    return match ? `${match[1]} (${match[2]})` : "";
-  }).filter(Boolean);
-  return { education, certifications, languages };
+  try {
+    const parsed = parseCvMarkdown(fs.readFileSync(path.join(WORKSPACE_ROOT, "cv.md"), "utf8"));
+    return {
+      education: parsed.education,
+      certifications: parsed.certifications,
+      languages: parsed.languages
+    };
+  } catch {
+    return { education: [], certifications: [], languages: [] };
+  }
 }
 
 export function candidateFileSlug(name: string) {
@@ -64,6 +56,8 @@ export function candidateFileSlug(name: string) {
 }
 
 export function resolveMasterPdfPath() {
+  const generated = path.join(WORKSPACE_ROOT, "output", `cv-${candidateFileSlug(loadDashboardProfile().name)}-master.pdf`);
+  if (fs.existsSync(generated)) return generated;
   let configured = "";
   try {
     const raw: any = yaml.load(fs.readFileSync(path.join(WORKSPACE_ROOT, "config", "profile.yml"), "utf8")) || {};

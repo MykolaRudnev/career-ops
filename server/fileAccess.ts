@@ -2,6 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { resolveMasterPdfPath } from "./profile.ts";
+import { inferJobCountries } from "./jobCountry.mjs";
+import { acquireTrackerLock, trackerLockDirFor, writeFileAtomic } from "../tracker-utils.mjs";
+import { resolveTrackerPathForWrite } from "../path-resolver.mjs";
 
 export const WORKSPACE_ROOT = path.resolve(process.cwd());
 
@@ -23,6 +26,7 @@ export interface PipelineJob {
   company: string;
   title: string;
   location: string;
+  countries: string[];
   workModel: string;
   date: string;
   status: "pending" | "reviewed" | "applied" | "skipped";
@@ -36,12 +40,20 @@ export interface PipelineJob {
   matchClassification?: "BEST MATCH" | "STRONG MATCH" | "POSSIBLE MATCH" | "LOW MATCH" | "SKIP";
   compatibilityTier?: "A" | "B" | "C" | "D";
   reason?: string;
+  reasonDisplay?: string;
   primaryStack?: string[];
   responsibilitySplit?: { frontend: string; backend: string; platform: string };
   evaluatedFrom?: "full-jd" | "pipeline-summary";
   salary?: string;
   hasTailoredCv?: boolean;
   tailoredPdfPath?: string;
+  source?: string;
+  sourceType?: string;
+  manualEntry?: boolean;
+  addedAt?: string;
+  description?: string;
+  sourceName?: string;
+  notes?: string;
 }
 
 export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJob[] } {
@@ -62,6 +74,13 @@ export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJo
   const pdfNameMap = new Map<string, string>();
   for (const f of outputFiles) {
     pdfNameMap.set(f.filename.toLowerCase(), f.filePath);
+  }
+  const manualById = new Map<string, any>();
+  const manualPath = path.join(WORKSPACE_ROOT, "data", "manual-jobs.json");
+  if (fs.existsSync(manualPath)) {
+    try {
+      for (const row of JSON.parse(fs.readFileSync(manualPath, "utf8"))) manualById.set(row.id, row);
+    } catch { /* malformed optional store: keep parsing the normal pipeline */ }
   }
 
   let index = 0;
@@ -114,18 +133,31 @@ export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJo
           }
         }
 
+        const manualId = extra.match(/manual-id:\s*([^|\s]+)/i)?.[1] || "";
+        const manual = manualById.get(manualId);
         const job: PipelineJob = {
-          id: `job-${index++}`,
+          id: manual?.id || `job-${index++}`,
           url,
           company,
           title,
           location,
+          countries: inferJobCountries(location),
           workModel,
           date,
           status,
           extra,
           hasTailoredCv,
-          tailoredPdfPath
+          tailoredPdfPath,
+          ...(manual ? {
+            source: "manual",
+            sourceType: "MANUAL",
+            manualEntry: true,
+            addedAt: manual.addedAt,
+            description: manual.description,
+            sourceName: manual.sourceName,
+            notes: manual.notes,
+            salary: manual.salary || ""
+          } : {})
         };
 
         if (currentSection === "pending") {
@@ -140,7 +172,7 @@ export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJo
   return { pending, processed };
 }
 
-export function updatePipelineStatus(targetUrl: string, newStatus: "reviewed" | "applied" | "skipped"): boolean {
+export async function updatePipelineStatus(targetUrl: string, newStatus: "reviewed" | "applied" | "skipped"): Promise<boolean> {
   const pipelinePath = path.join(WORKSPACE_ROOT, "data", "pipeline.md");
   if (!fs.existsSync(pipelinePath)) return false;
 
@@ -188,6 +220,37 @@ export function updatePipelineStatus(targetUrl: string, newStatus: "reviewed" | 
       newPendingLines.splice(procIdx + 1, 0, ...processedLinesToAdd);
     }
     fs.writeFileSync(pipelinePath, newPendingLines.join("\n"), "utf8");
+
+    const manualPath = path.join(WORKSPACE_ROOT, "data", "manual-jobs.json");
+    if (fs.existsSync(manualPath)) {
+      try {
+        const manualJobs = JSON.parse(fs.readFileSync(manualPath, "utf8"));
+        const manual = manualJobs.find((job: any) => job.url === targetUrl);
+        if (manual) {
+          manual.status = newStatus;
+          fs.writeFileSync(manualPath, JSON.stringify(manualJobs, null, 2), "utf8");
+          const trackerPath = resolveTrackerPathForWrite(WORKSPACE_ROOT);
+          if (fs.existsSync(trackerPath)) {
+            const lock = await acquireTrackerLock(trackerLockDirFor(trackerPath), { tracker: trackerPath });
+            try {
+              const trackerLines = fs.readFileSync(trackerPath, "utf8").split("\n");
+              const header = trackerLines.find((line) => /^\|\s*#\s*\|/.test(line));
+              const statusIndex = header ? header.split("|").map((part) => part.trim().toLowerCase()).indexOf("status") : 6;
+              const canonical = newStatus === "applied" ? "Applied" : newStatus === "skipped" ? "SKIP" : "Evaluated";
+              const updatedTracker = trackerLines.map((line) => {
+                if (!line.includes(`manual-id: ${manual.id}`)) return line;
+                const parts = line.split("|");
+                if (statusIndex > 0 && statusIndex < parts.length) parts[statusIndex] = ` ${canonical} `;
+                return parts.join("|");
+              }).join("\n");
+              writeFileAtomic(trackerPath, updatedTracker);
+            } finally {
+              lock.release();
+            }
+          }
+        }
+      } catch { /* pipeline status remains authoritative if optional enrichment fails */ }
+    }
     return true;
   }
 
@@ -246,7 +309,7 @@ export function getTailoredCvs(): TailoredCvFile[] {
   const cvs: TailoredCvFile[] = [];
 
   for (const file of files) {
-    if (file.endsWith(".pdf") && file.startsWith("cv-")) {
+    if (file.endsWith(".pdf") && file.startsWith("cv-") && !file.includes("-master.")) {
       const full = path.join(outDir, file);
       const stat = fs.statSync(full);
       cvs.push({

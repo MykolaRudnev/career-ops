@@ -94,6 +94,9 @@
 ---
 
 ## Tailoring Rules for Magento / Hyvä Vacancies
+- **PRIMARY DOMAIN:** `MAGENTO_HYVA`
 - **Headline Priority:** `Lead / Senior Front-End Developer | Magento 2 | Hyvä | E-commerce Architecture`
-- **Project Selection:** Choose 2–4 of the above verified projects (`HUBER SE`, `housetipster.com`, `edycja.pl`, `British American Tobacco`, `3mk.pl`, `catering24.co.uk`) based on the client's industry and technical scope.
-- **Skill Ordering:** Prioritize Magento 2, Hyvä Theme, Hyvä CMS, Alpine.js, Tailwind CSS, XML/Layout, PHTML, Core Web Vitals, and Technical SEO.
+- **Summary:** "Senior Frontend Developer with deep Magento 2 / Hyvä experience..."
+- **Project whitelist:** HUBER SE, Lufed IT, housetipster.com, edycja.pl, fmic.pl, dreamroots.pl, hbsgroup.net, paypair.com, British American Tobacco, catering24.co.uk, solar.com.pl, 3mk.pl. Select **3 Magento projects**; optionally 1 React project only if the JD explicitly requests React/Next.js. Magento projects must remain ≥75%.
+- **Do not select** React SaaS/recruitment/NFT projects (copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app) unless the JD explicitly requests React/Next.js.
+- **Skills:** Magento 2, Hyvä, Hyvä CMS, Alpine.js, XML/Layout, PHTML, JavaScript, Tailwind, LESS/SASS, PLP/PDP/Cart/Checkout/CMS, REST, GraphQL.

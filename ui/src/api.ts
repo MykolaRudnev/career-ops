@@ -4,6 +4,7 @@ export interface PipelineJob {
   company: string;
   title: string;
   location: string;
+  countries: string[];
   workModel: string;
   date: string;
   status: "pending" | "reviewed" | "applied" | "skipped";
@@ -17,12 +18,71 @@ export interface PipelineJob {
   matchClassification?: "BEST MATCH" | "STRONG MATCH" | "POSSIBLE MATCH" | "LOW MATCH" | "SKIP";
   compatibilityTier?: "A" | "B" | "C" | "D";
   reason?: string;
+  reasonDisplay?: string;
   primaryStack?: string[];
   responsibilitySplit?: { frontend: string; backend: string; platform: string };
   evaluatedFrom?: "full-jd" | "pipeline-summary";
   salary?: string;
   hasTailoredCv?: boolean;
   tailoredPdfPath?: string;
+  source?: string;
+  sourceType?: string;
+  manualEntry?: boolean;
+  addedAt?: string;
+  description?: string;
+  sourceName?: string;
+  notes?: string;
+}
+
+export type OperationStatus = "PENDING" | "RUNNING" | "CANCELLING" | "CANCELLED" | "COMPLETED" | "FAILED";
+
+export interface OperationRecord {
+  operationId: string;
+  jobId: string;
+  type: "TAILORED_CV" | "COVER_LETTER";
+  status: OperationStatus;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  currentStage: string;
+  error?: string;
+  errorType?: "FAILED" | "TIMEOUT" | "INTERRUPTED";
+  result?: any;
+}
+
+export interface ManualJobInput {
+  title: string;
+  company: string;
+  description: string;
+  url?: string;
+  location?: string;
+  workModel?: string;
+  salary?: string;
+  sourceName?: string;
+  notes?: string;
+}
+
+export interface CoverLetterArtifact {
+  content: string;
+  markdownPath: string;
+  textPath: string;
+  metadataPath: string;
+  cvChangedSince: boolean;
+  metadata: {
+    provider: string;
+    model: string;
+    generatedAt: string;
+    durationMs: number;
+    jobId: string;
+    company: string;
+    role: string;
+    basedOnTailoredCv: boolean;
+    tailoredCvModifiedAt: string | null;
+    wordCount: number;
+    factValidation: "PASS" | "WARN";
+    editedAt?: string;
+    editCount?: number;
+  };
 }
 
 export interface SystemStatus {
@@ -163,7 +223,96 @@ export async function generateTailoredCv(job: PipelineJob, providerId: string, m
     body: JSON.stringify({ job, providerId, model })
   });
   const data = await res.json();
-  if (!res.ok || !data.success) throw new Error(data.error || "Tailoring failed");
+  if (!res.ok || !data?.success) throw new Error(data.error || "Tailoring failed");
+  return data.operation as OperationRecord;
+}
+
+export async function generateCoverLetter(job: PipelineJob, providerId: string, model?: string): Promise<OperationRecord> {
+  const res = await fetch(`${API_BASE}/api/cover-letter/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job, providerId, model })
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || "Cover Letter generation failed");
+  return data.operation;
+}
+
+export async function fetchCoverLetter(job: PipelineJob): Promise<CoverLetterArtifact | null> {
+  const res = await fetch(`${API_BASE}/api/cover-letter/status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job })
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || "Could not load Cover Letter");
+  return data.artifact || null;
+}
+
+export async function saveCoverLetter(job: PipelineJob, content: string): Promise<CoverLetterArtifact> {
+  const res = await fetch(`${API_BASE}/api/cover-letter`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job, content })
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || "Could not save Cover Letter");
+  return data.artifact;
+}
+
+export function coverLetterDownloadUrl(job: PipelineJob): string {
+  return `${API_BASE}/api/cover-letter/download?company=${encodeURIComponent(job.company)}&title=${encodeURIComponent(job.title)}`;
+}
+
+export async function fetchApplicationCoverContext(job: PipelineJob, maxChars = 0): Promise<string> {
+  const res = await fetch(`${API_BASE}/api/cover-letter/application-context`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job, maxChars })
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || "Could not prepare application context");
+  return data.content;
+}
+
+export async function fetchOperations(): Promise<OperationRecord[]> {
+  const res = await fetch(`${API_BASE}/api/operations`);
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || "Failed to load operations");
+  return data.operations || [];
+}
+
+export async function cancelOperation(operationId: string): Promise<OperationRecord> {
+  const res = await fetch(`${API_BASE}/api/operations/${encodeURIComponent(operationId)}/cancel`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || "Cancellation failed");
+  return data.operation;
+}
+
+export async function createManualJob(
+  job: ManualJobInput,
+  options: { addAnyway?: boolean; generateCv?: boolean; providerId?: string; model?: string } = {}
+): Promise<{ job: PipelineJob; evaluation: any; operation?: OperationRecord }> {
+  const res = await fetch(`${API_BASE}/api/manual-jobs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job, ...options })
+  });
+  const data = await res.json();
+  if (res.status === 409 && data.duplicate) {
+    const error: any = new Error("A matching manual job already exists");
+    error.code = "DUPLICATE";
+    error.existingJobs = data.existingJobs || [];
+    throw error;
+  }
+  if (!res.ok || !data.success) throw new Error(data.error || "Could not add manual job");
+  return data;
+}
+
+export async function generateMasterCv(): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/master-cv`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || "Master CV generation failed");
   return data;
 }
 
@@ -249,6 +398,8 @@ export interface TailoringDiffData {
   llmTailoringExecuted: boolean;
   factValidation: string;
   pages: number;
+  primaryDomain?: string;
+  secondaryDomains?: string[];
   tailoringDiff: {
     summary_focus: string;
     skills_promoted: string[];
@@ -256,6 +407,8 @@ export interface TailoringDiffData {
     projects_selected: Array<{ name: string; reason: string }>;
     jd_keywords_matched: string[];
     experience_emphasis: string;
+    primary_domain?: string;
+    secondary_domains?: string[];
   };
   htmlPath: string;
   pdfPath: string;

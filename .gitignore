@@ -162,6 +162,12 @@ package-lock.json
 test-results/
 playwright-report/
 
+# Local dashboard/CV generation artifacts (personal, never commit)
+/outputs/
+/scratch/
+/history/
+/*.pdf
+
 # Planning (local scratchpad)
 plan/
 

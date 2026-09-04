@@ -51,8 +51,13 @@ This document acts as the definitive, multi-domain project registry for Career-O
 ---
 
 ## Project Selection Guidelines for Tailored CVs
-1. **Never dump all projects into one CV.** Select approximately 2–4 projects strictly relevant to the target role.
-2. **For React / Next.js roles:** Highlight `ponadczasowi.pl`, `copernicspace.com`, `hrk.pl`, `pmicareers.pl`.
-3. **For Magento / Hyvä roles:** Highlight `HUBER SE`, `housetipster.com`, `British American Tobacco`, `3mk.pl`, `edycja.pl`.
-4. **For Shopify roles:** Highlight `Glasy.pl`, `Ascent`, `Warmsome`, `Berg's`, `Pixel25`.
-5. **For General Frontend / Tech Lead roles:** Combine `HUBER SE` (leadership, direct client communication, e-commerce scale) with `ponadczasowi.pl` or `copernicspace.com` (React/Next.js architecture).
+
+Knowledge stays broad. **Selection is domain-routed.** A deterministic validator rejects CVs before PDF if the primary pool is a minority.
+
+1. **Never dump all projects into one CV.** Select 2–4 projects. Do not reuse the same four on every CV; rotate inside the primary pool.
+2. **Classify ONE PRIMARY DOMAIN first** (`SHOPIFY`, `REACT_FRONTEND`, `MAGENTO_HYVA`, `FULLSTACK_TYPESCRIPT_NODE`, `FRONTEND_LEAD`, `PRODUCT_ENGINEERING`, `DELIVERY_TECHNICAL`, `GENERAL_FRONTEND`). Secondary domains are optional.
+3. **PRIMARY pool must supply at least 75% of selected projects.**
+4. **SHOPIFY whitelist (use only these for Shopify CVs):** Glasy.pl, Ascent, Warmsome, Pixel25, Berg's, Diamandia (caveat: our version was not released). Target **3 Shopify + optionally 1 supporting React e-commerce** if the JD explicitly asks for React/Next.js. **Do not** normally select ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de. Never ship 1 Shopify + 3 React.
+5. **REACT / NEXT whitelist:** ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de. Do not add Shopify-specific or Magento projects unless the JD is e-commerce-relevant.
+6. **MAGENTO / HYVÄ whitelist:** HUBER SE, Lufed IT, housetipster.com, edycja.pl, fmic.pl, dreamroots.pl, hbsgroup.net, paypair.com, British American Tobacco, catering24.co.uk, solar.com.pl, 3mk.pl. Do not select React SaaS/recruitment/NFT projects unless the JD explicitly requests React/Next.js.
+7. **Frontend Lead / General:** combine HUBER SE (leadership, direct client, e-commerce scale) with ponadczasowi.pl or copernicspace.com (React/Next.js architecture), still keeping the primary-pool 75% rule.

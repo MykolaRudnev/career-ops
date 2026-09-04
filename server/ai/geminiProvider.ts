@@ -32,7 +32,7 @@ export class GeminiProvider implements AiProvider {
   }
 
   async execute(request: AiRequest): Promise<AiResponse> {
-    if (!(await this.isAvailable())) {
+    if (!(await executableAvailable("agy", ["--version"], request.signal))) {
       throw new ProviderExecutionError("Gemini / Antigravity CLI is not installed (expected executable: agy)", "not_installed");
     }
     const model = request.model && !["auto", "default"].includes(request.model) ? request.model : DEFAULT_MODEL;
@@ -40,7 +40,7 @@ export class GeminiProvider implements AiProvider {
     const { stdout, stderr } = await execFileAsync(
       "agy",
       ["--model", model, "--dangerously-skip-permissions", "-p", request.prompt],
-      { timeoutMs: request.timeoutMs }
+      { timeoutMs: request.timeoutMs, signal: request.signal }
     );
     return {
       content: stdout.trim(),

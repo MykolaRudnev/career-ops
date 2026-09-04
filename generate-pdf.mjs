@@ -1154,6 +1154,7 @@ function updatePDFManifest(reportNum, pdfPath, htmlPath, format) {
 async function generatePDF() {
   const args = process.argv.slice(2);
   let skipFactCheck = false;
+  const factSourcePaths = [];
 
   // Parse arguments
   let inputPath, outputPath, format = 'a4', reportNum = '', allowReorder = false;
@@ -1169,6 +1170,8 @@ async function generatePDF() {
     } else if (arg.startsWith('--max-pages=')) {
       maxPagesInput = arg.slice('--max-pages='.length);
       maxPages = Number(maxPagesInput);
+    } else if (arg.startsWith('--source=')) {
+      factSourcePaths.push(arg.slice('--source='.length));
     } else if (arg === '--allow-reorder') {
       allowReorder = true;
     } else if (arg === '--strict-pages') {
@@ -1299,7 +1302,10 @@ async function generatePDF() {
     // module is genuinely missing in a real workspace this throws and the render
     // fails, which is the correct direction to fail for a fact gate.
     const { assertFacts } = await import('./verify-cv-facts.mjs');
-    const factCheck = assertFacts(html, { label: basename(inputPath) });
+    const factCheck = assertFacts(html, {
+      label: basename(inputPath),
+      ...(factSourcePaths.length ? { sourcePaths: factSourcePaths } : {}),
+    });
     if (factCheck.verdict === 'warn') {
       console.warn(`⚠️  CV fact check warning: ${basename(inputPath)}`);
       for (const phrase of factCheck.warnings) console.warn(`  - advisory phrase: ${phrase}`);

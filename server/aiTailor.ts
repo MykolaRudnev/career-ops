@@ -1,10 +1,21 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execFile, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { WORKSPACE_ROOT } from "./fileAccess.ts";
 import { aiProviderRegistry } from "./ai/providerRegistry.ts";
 import type { ProviderExecutionEvent } from "./ai/types.ts";
-import { candidateFileSlug, loadCvSupportingSections, loadDashboardProfile } from "./profile.ts";
+import { candidateFileSlug, loadDashboardProfile } from "./profile.ts";
+import { buildMasterCvPayload, candidateContactFields, loadParsedMasterCv, masterOutputPaths } from "./cvFromMaster.mjs";
+import {
+  classifyDomain,
+  domainProjectPool,
+  domainConsistencyValidation,
+  enforceDomainConsistency,
+  selectKnowledgeFiles
+} from "./cvDomainRouting.mjs";
+import { countPdfPagesFromBuffer, parseLoggedPdfPageCount } from "./pdfPageCount.mjs";
+import { OperationCancelledError, ProcessTimeoutError, runCancellableCommand } from "./process.ts";
+import { jobArtifactDir, jobArtifactSlug } from "./jobArtifacts.ts";
 
 export interface TailoringDiff {
   summary_focus: string;
@@ -13,9 +24,13 @@ export interface TailoringDiff {
   projects_selected: Array<{ name: string; reason: string }>;
   jd_keywords_matched: string[];
   experience_emphasis: string;
+  primary_domain?: string;
+  secondary_domains?: string[];
 }
 
 export interface AiTailorResult {
+  primary_domain?: string;
+  secondary_domains?: string[];
   headline: string;
   summary: string;
   skills: Array<{ category: string; items: string }>;
@@ -56,6 +71,8 @@ export interface TailorJobMetadata {
   llmTailoringExecuted: boolean;
   factValidation: string;
   pages: number;
+  primaryDomain: string;
+  secondaryDomains?: string[];
   tailoringDiff: TailoringDiff;
   htmlPath: string;
   pdfPath: string;
@@ -66,33 +83,26 @@ export interface TailorJobMetadata {
  */
 export async function getFullJobDescription(
   jobUrl: string,
-  fallbackText: string = ""
+  fallbackText: string = "",
+  signal?: AbortSignal
 ): Promise<{ text: string; source: "browser-extract" | "fallback" }> {
   if (!jobUrl || !jobUrl.startsWith("http")) {
     return { text: fallbackText, source: "fallback" };
   }
 
-  return new Promise((resolve) => {
-    const extractScript = path.join(WORKSPACE_ROOT, "browser-extract.mjs");
-    execFile(
-      "node",
+  const extractScript = process.env.CAREER_OPS_BROWSER_EXTRACT || path.join(WORKSPACE_ROOT, "browser-extract.mjs");
+  try {
+    const { stdout } = await runCancellableCommand(
+      process.execPath,
       [extractScript, jobUrl, "--max-chars", "12000", "--timeout", "15000"],
-      { maxBuffer: 10 * 1024 * 1024 },
-      (err, stdout) => {
-        if (!err && stdout) {
-          try {
-            const data = JSON.parse(stdout);
-            if (data.text && data.text.length > 80) {
-              return resolve({ text: data.text, source: "browser-extract" });
-            }
-          } catch {
-            // JSON parse failed, fall back
-          }
-        }
-        resolve({ text: fallbackText || `Job listing at ${jobUrl}`, source: "fallback" });
-      }
+      { maxBuffer: 10 * 1024 * 1024, timeoutMs: 25_000, signal }
     );
-  });
+    const data = JSON.parse(stdout);
+    if (data.text && data.text.length > 80) return { text: data.text, source: "browser-extract" };
+  } catch (error) {
+    if (error instanceof OperationCancelledError) throw error;
+  }
+  return { text: fallbackText || `Job listing at ${jobUrl}`, source: "fallback" };
 }
 
 /**
@@ -104,28 +114,33 @@ export function buildTailoringPrompt(
 ): string {
   const cvMdPath = path.join(WORKSPACE_ROOT, "cv.md");
   const projectsMdPath = path.join(WORKSPACE_ROOT, "knowledge", "projects.md");
-  const reactMdPath = path.join(WORKSPACE_ROOT, "knowledge", "react-frontend.md");
-  const magentoMdPath = path.join(WORKSPACE_ROOT, "knowledge", "magento-hyva.md");
-  const shopifyMdPath = path.join(WORKSPACE_ROOT, "knowledge", "shopify.md");
   const aiMdPath = path.join(WORKSPACE_ROOT, "knowledge", "ai-agentic-development.md");
 
   const cvMd = fs.readFileSync(cvMdPath, "utf8");
   const projectsMd = fs.existsSync(projectsMdPath) ? fs.readFileSync(projectsMdPath, "utf8") : "";
 
-  // Check domain context to supply supplementary knowledge
-  const textToScan = (job.title + " " + (job.extra || "") + " " + fullJd).toLowerCase();
-  let domainKnowledge = "";
-  if (textToScan.includes("shopify")) {
-    domainKnowledge += (fs.existsSync(shopifyMdPath) ? fs.readFileSync(shopifyMdPath, "utf8") + "\n\n" : "");
+  const classified = classifyDomain(job.title, fullJd, job.extra || "");
+  const knowledgeFiles = selectKnowledgeFiles(classified.primary, classified.secondary, `${job.title}\n${fullJd}`);
+  const knowledgeByRole: string[] = [];
+  for (const file of knowledgeFiles) {
+    const abs = path.join(WORKSPACE_ROOT, file.path);
+    if (!fs.existsSync(abs)) continue;
+    const label = file.role === "primary"
+      ? `PRIMARY DOMAIN KNOWLEDGE (${file.domain})`
+      : `SECONDARY DOMAIN KNOWLEDGE (${file.domain} — explicitly justified by this JD)`;
+    knowledgeByRole.push(`${label}:\n${fs.readFileSync(abs, "utf8")}`);
   }
-  if (textToScan.includes("magento") || textToScan.includes("hyva") || textToScan.includes("hyvä") || textToScan.includes("adobe commerce")) {
-    domainKnowledge += (fs.existsSync(magentoMdPath) ? fs.readFileSync(magentoMdPath, "utf8") + "\n\n" : "");
-  }
-  if (textToScan.includes("react") || textToScan.includes("next") || textToScan.includes("frontend") || !domainKnowledge) {
-    domainKnowledge += (fs.existsSync(reactMdPath) ? fs.readFileSync(reactMdPath, "utf8") + "\n\n" : "");
-  }
+  const domainKnowledge = knowledgeByRole.join("\n\n");
   const aiKnowledge = fs.existsSync(aiMdPath) ? fs.readFileSync(aiMdPath, "utf8") : "";
   const candidate = loadDashboardProfile();
+  const primaryPool = domainProjectPool(classified.primary).map((p) => p.name).join(", ");
+  const shopifyForbidden = classified.primary === "SHOPIFY"
+    ? "ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de"
+    : classified.primary === "MAGENTO_HYVA"
+      ? "ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de unless the JD explicitly requests React/Next.js"
+      : classified.primary === "REACT_FRONTEND"
+        ? "Shopify-specific (Glasy.pl, Ascent, Warmsome, Pixel25, Berg's, Diamandia) and Magento/Hyvä projects unless the JD is explicitly e-commerce-relevant"
+        : "off-domain projects that are not in the primary pool";
 
   return `You are the Career-Ops Expert CV Tailoring Engine.
 Your objective is to tailor ${candidate.name}'s CV specifically for the following job vacancy.
@@ -137,6 +152,18 @@ Job Title: "${job.title}"
 Location: "${job.location || 'Poland'}"
 URL: "${job.url}"
 
+==================================================
+STRICT DOMAIN ROUTING (deterministic — obey this)
+==================================================
+PRIMARY DOMAIN: ${classified.primary}
+SECONDARY DOMAINS: ${classified.secondary.join(", ") || "none"}
+PRIMARY PROJECT WHITELIST (must supply at least 75% of selected projects): ${primaryPool}
+Do NOT normally select: ${shopifyForbidden}
+Shopify vacancies: select 3 Shopify projects + optionally 1 supporting React e-commerce project ONLY if the JD explicitly asks for React/Next.js. NEVER ship 1 Shopify + 3 React.
+Magento vacancies: 3 Magento + optionally 1 React if the JD asks for React/Next.js.
+React vacancies: 3 React + optionally 1 e-commerce project if relevant.
+A deterministic validator will REJECT the CV before PDF if the primary pool is a minority.
+
 FULL JOB DESCRIPTION:
 ${fullJd.substring(0, 8500)}
 
@@ -146,8 +173,8 @@ ${cvMd}
 VERIFIED COMMERCIAL PROJECTS CATALOG (Select 2-4 matching projects from this catalog ONLY):
 ${projectsMd}
 
-SUPPLEMENTARY DOMAIN KNOWLEDGE:
-${domainKnowledge.substring(0, 3000)}
+DOMAIN KNOWLEDGE (PRIMARY first; secondary only if the JD explicitly justifies it):
+${domainKnowledge.substring(0, 4500) || "None loaded."}
 
 AI-ASSISTED DEVELOPMENT KNOWLEDGE:
 ${aiKnowledge.substring(0, 2000)}
@@ -233,13 +260,26 @@ WORK EXPERIENCE BULLETS RULES
 ==================================================
 PROJECT SELECTION RULES
 ==================================================
-- Select 2 to 4 projects strictly from the VERIFIED COMMERCIAL PROJECTS catalog that provide the strongest evidence for THIS vacancy.
-- Align project choice to the JD:
-  * React/Next.js/Performance: e.g. ponadczasowi.pl, hrk.pl, pmicareers.pl
-  * React/Architecture/Complex UI: e.g. copernicspace.com, pmicareers.pl, learningspace.app
-  * Magento: e.g. HUBER SE, housetipster.com, British American Tobacco, 3MK Protection
-  * Shopify: e.g. Glasy.pl, Ascent, Warmsome, Berg's, Pixel25
+- Select 2 to 4 projects strictly from the VERIFIED COMMERCIAL PROJECTS catalog.
+- Do not reuse the same four projects on every CV; rotate within the PRIMARY DOMAIN whitelist.
+- PRIMARY DOMAIN pool must supply at least 75% of selected projects.
+- SHOPIFY whitelist ONLY: Glasy.pl, Ascent, Warmsome, Pixel25, Berg's, Diamandia (keep Diamandia caveat: our version was not released).
+- REACT/NEXT whitelist ONLY: ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de
+- MAGENTO/HYVA whitelist: HUBER SE, Lufed IT, housetipster.com, edycja.pl, fmic.pl, dreamroots.pl, hbsgroup.net, paypair.com, British American Tobacco, catering24.co.uk, solar.com.pl, 3mk.pl
 - Give project name, tech stack, and a clear factual description of the candidate's deliverables.
+
+==================================================
+SUMMARY & EXPERIENCE ROUTING
+==================================================
+- Summary MUST match PRIMARY DOMAIN. Do not reuse one summary across domains.
+  * SHOPIFY: start from "Frontend / Shopify Developer..." or "Senior E-Commerce Frontend Developer..."
+  * REACT_FRONTEND: "Senior Frontend Developer specializing in React, Next.js and TypeScript..."
+  * MAGENTO_HYVA: "Senior Frontend Developer with deep Magento 2 / Hyvä experience..."
+  * FULLSTACK_TYPESCRIPT_NODE: "Senior Frontend Engineer expanding into frontend-heavy Fullstack TypeScript..."
+- Preserve the exact 6 employers and dates. Select bullets by PRIMARY DOMAIN.
+  * Shopify + For Better Future: Shopify themes, Liquid sections, custom blocks, storefront components, product/collection pages, Figma to storefront, e-commerce performance.
+  * React + For Better Future: React, Next.js, TypeScript, architecture, reusable UI, multi-project delivery.
+  * Magento + For Better Future: Magento 2, storefronts, PLP/PDP, Cart/Checkout, CMS, multi-store, performance.
 
 ==================================================
 STRICT ANTI-FABRICATION
@@ -253,6 +293,8 @@ OUTPUT FORMAT
 Output ONLY a raw JSON object (no surrounding conversational text, no markdown backticks).
 Schema:
 {
+  "primary_domain": "${classified.primary}",
+  "secondary_domains": [${classified.secondary.map((d) => `"${d}"`).join(", ")}],
   "headline": "Target Professional Headline for this vacancy",
   "summary": "Custom tailored 3-5 line summary",
   "skills": [
@@ -319,7 +361,10 @@ function parseTailoringJson(output: string): AiTailorResult {
   const diff = result.tailoring_diff;
   if (!diff || typeof diff.summary_focus !== "string" || !Array.isArray(diff.skills_promoted) || !Array.isArray(diff.projects_selected) || !Array.isArray(diff.jd_keywords_matched) || typeof diff.experience_emphasis !== "string") missing.push("tailoring_diff");
   if (missing.length > 0) throw new Error(`Invalid or incomplete AI tailoring response: ${missing.join(", ")}`);
-  return result as AiTailorResult;
+  const parsedResult = result as AiTailorResult;
+  if (typeof result.primary_domain === "string") parsedResult.primary_domain = result.primary_domain;
+  if (Array.isArray(result.secondary_domains)) parsedResult.secondary_domains = result.secondary_domains.filter((d) => typeof d === "string");
+  return parsedResult;
 }
 
 export async function runAiTailoring(
@@ -327,25 +372,146 @@ export async function runAiTailoring(
   fullJd: string,
   options: { providerId?: string; model?: string } = {},
   onProgress?: (stage: string) => void,
-  onProviderEvent?: (event: ProviderExecutionEvent) => void
+  onProviderEvent?: (event: ProviderExecutionEvent) => void,
+  signal?: AbortSignal
 ): Promise<AiTailorResult> {
   const prompt = buildTailoringPrompt(job, fullJd);
   const schemaPath = path.join(WORKSPACE_ROOT, "server", "ai", "tailoredCv.schema.json");
   const response = await aiProviderRegistry.execute(
-    { prompt, outputSchemaPath: schemaPath, timeoutMs: 5 * 60_000 },
+    { prompt, outputSchemaPath: schemaPath, timeoutMs: 5 * 60_000, signal },
     options,
     (event) => {
       onProgress?.(event.message);
       onProviderEvent?.(event);
     }
   );
+  onProgress?.("Validating AI Output");
   const parsed = parseTailoringJson(response.content);
-  parsed._durationMs = response.durationMs;
-  parsed._modelUsed = response.model;
-  parsed._providerId = response.providerId;
-  parsed._providerName = response.providerName;
-  parsed._fallbackUsed = response.fallbackUsed;
-  return parsed;
+  onProgress?.("Domain Validation");
+  domainConsistencyValidation(parsed, job, fullJd);
+  const { result } = enforceDomainConsistency(parsed, job, fullJd);
+  result._durationMs = response.durationMs;
+  result._modelUsed = response.model;
+  result._providerId = response.providerId;
+  result._providerName = response.providerName;
+  result._fallbackUsed = response.fallbackUsed;
+  return result;
+}
+
+function commandError(err: any): string {
+  const stderr = err?.stderr ? String(err.stderr) : "";
+  const stdout = err?.stdout ? String(err.stdout) : "";
+  return [stderr.trim(), stdout.trim(), err?.message].filter(Boolean).join("\n") || "unknown error";
+}
+
+function writeMarkdownCv(payload: any, candidateName: string): string {
+  let markdownCv = `# ${candidateName}\n`;
+  markdownCv += `**${payload.candidate.title || payload.candidate.headline || ""}**\n\n`;
+  markdownCv += `${payload.candidate.email} | ${payload.candidate.phone} | ${payload.candidate.location}\n`;
+  const linkedin = payload.candidate.linkedin?.url || "";
+  const github = payload.candidate.github?.url || "";
+  const portfolio = payload.candidate.portfolio?.url || "";
+  markdownCv += `Portfolio: ${portfolio} | GitHub: ${github} | LinkedIn: ${linkedin}\n\n`;
+  markdownCv += `## Professional Summary\n${payload.summary}\n\n`;
+  markdownCv += `## Technical Skills\n`;
+  for (const sk of payload.skills || []) markdownCv += `- **${sk.category}**: ${sk.items}\n`;
+  markdownCv += `\n## Work Experience\n`;
+  for (const exp of payload.experience || []) {
+    markdownCv += `### ${exp.company} — ${exp.role}\n*${exp.dates} | ${exp.location}*\n`;
+    for (const b of exp.bullets || []) markdownCv += `- ${b}\n`;
+    markdownCv += `\n`;
+  }
+  markdownCv += `## Key Projects\n`;
+  for (const p of payload.projects || []) markdownCv += `### ${p.name} (${p.tech})\n${p.description}\n\n`;
+  markdownCv += `## Education\n`;
+  for (const edu of payload.education || []) markdownCv += `- **${edu.title}** -- ${edu.org} (${edu.year})\n`;
+  markdownCv += `\n## Professional Development\n`;
+  for (const cert of payload.certifications || []) markdownCv += `- **${cert.title}** -- ${cert.org} (${cert.year})\n`;
+  markdownCv += `\n## Languages\n`;
+  markdownCv += `- ${(payload.interests && payload.interests[0]) || ""}\n`;
+  return markdownCv;
+}
+
+function factSourceArgs() {
+  const files = [
+    "cv.md",
+    "article-digest.md",
+    "knowledge/projects.md",
+    "knowledge/shopify.md",
+    "knowledge/react-frontend.md",
+    "knowledge/magento-hyva.md",
+    "knowledge/ai-agentic-development.md"
+  ];
+  const args: string[] = [];
+  for (const file of files) {
+    if (fs.existsSync(path.join(WORKSPACE_ROOT, file))) {
+      args.push("--source", file);
+    }
+  }
+  return args;
+}
+
+function parsePdfPageCount(stdout: string, pdfPath: string): number {
+  const logged = parseLoggedPdfPageCount(stdout);
+  if (logged) return logged;
+  return countPdfPagesFromBuffer(fs.readFileSync(pdfPath));
+}
+
+export function publishGenerationArtifacts(
+  files: Array<{ staged: string; destination: string }>,
+  operationId: string,
+  signal?: AbortSignal
+) {
+  if (signal?.aborted) throw new OperationCancelledError();
+  for (const { staged, destination } of files) {
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    const incoming = `${destination}.${operationId}.incoming`;
+    fs.copyFileSync(staged, incoming);
+    if (signal?.aborted) {
+      fs.rmSync(incoming, { force: true });
+      throw new OperationCancelledError();
+    }
+    fs.renameSync(incoming, destination);
+  }
+}
+
+async function renderHtmlAndPdf(
+  tmpJsonPath: string,
+  htmlPath: string,
+  pdfPath: string,
+  onProgress?: (stage: string) => void,
+  signal?: AbortSignal
+): Promise<{ pageCount: number }> {
+  fs.mkdirSync(path.dirname(htmlPath), { recursive: true });
+  fs.mkdirSync(path.dirname(pdfPath), { recursive: true });
+  if (onProgress) onProgress("Building HTML");
+  try {
+    await runCancellableCommand(process.execPath, ["build-cv-html.mjs", tmpJsonPath, htmlPath], { cwd: WORKSPACE_ROOT, signal, timeoutMs: 60_000 });
+  } catch (buildErr: any) {
+    if (buildErr instanceof OperationCancelledError || buildErr instanceof ProcessTimeoutError) throw buildErr;
+    throw new Error(`Failed to build HTML CV: ${commandError(buildErr)}`);
+  }
+  const sourceArgs = factSourceArgs();
+  if (onProgress) onProgress("Fact Validation");
+  try {
+    await runCancellableCommand(process.execPath, ["verify-cv-facts.mjs", htmlPath, ...sourceArgs], { cwd: WORKSPACE_ROOT, signal, timeoutMs: 60_000 });
+  } catch (factErr: any) {
+    if (factErr instanceof OperationCancelledError || factErr instanceof ProcessTimeoutError) throw factErr;
+    throw new Error(`Fact Validation Failed: ${commandError(factErr)}`);
+  }
+  if (onProgress) onProgress("Generating PDF");
+  try {
+    const pdfSourceFlags = sourceArgs.filter((_, index) => index % 2 === 1).map((file) => `--source=${file}`);
+    const pdfOut = await runCancellableCommand(process.execPath, ["generate-pdf.mjs", htmlPath, pdfPath, "--format=a4", ...pdfSourceFlags], {
+      cwd: WORKSPACE_ROOT,
+      signal,
+      timeoutMs: 120_000
+    });
+    return { pageCount: parsePdfPageCount(pdfOut.stdout, pdfPath) };
+  } catch (pdfErr: any) {
+    if (pdfErr instanceof OperationCancelledError || pdfErr instanceof ProcessTimeoutError) throw pdfErr;
+    throw new Error(`Failed to render PDF: ${commandError(pdfErr)}`);
+  }
 }
 
 /**
@@ -355,7 +521,8 @@ export async function renderAndValidateTailoredCv(
   job: { company: string; title: string; url: string; location?: string; id: string },
   fullJd: string,
   aiResult: AiTailorResult,
-  onProgress?: (stage: string) => void
+  onProgress?: (stage: string) => void,
+  options: { operationId?: string; signal?: AbortSignal } = {}
 ): Promise<{
   jobDir: string;
   metadata: TailorJobMetadata;
@@ -363,43 +530,47 @@ export async function renderAndValidateTailoredCv(
   pdfPath: string;
   markdownPath: string;
 }> {
-  const compSlug = job.company.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  const titleSlug = job.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  const baseSlug = `${compSlug}-${titleSlug}`.substring(0, 50);
+  const baseSlug = jobArtifactSlug(job.company, job.title);
   const candidate = loadDashboardProfile();
-  const supporting = loadCvSupportingSections();
+  const parsedMaster = loadParsedMasterCv();
   const candidateSlug = candidateFileSlug(candidate.name);
+
+  domainConsistencyValidation(aiResult, job, fullJd);
+  const enforced = enforceDomainConsistency(aiResult, job, fullJd);
+  aiResult = enforced.result;
 
   // Setup outputs directory: outputs/<compSlug-titleSlug>/
   const outputsBase = path.join(WORKSPACE_ROOT, "outputs");
   if (!fs.existsSync(outputsBase)) fs.mkdirSync(outputsBase, { recursive: true });
 
-  const jobDir = path.join(outputsBase, `${baseSlug}`);
+  const jobDir = jobArtifactDir(job);
   if (!fs.existsSync(jobDir)) fs.mkdirSync(jobDir, { recursive: true });
+  const operationId = (options.operationId || `op-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "-");
+  const stagingDir = path.join(jobDir, ".tmp", operationId);
+  fs.mkdirSync(stagingDir, { recursive: true });
 
-  // Save Job Description
-  fs.writeFileSync(path.join(jobDir, "job-description.md"), fullJd, "utf8");
+  const assertNotCancelled = () => {
+    if (options.signal?.aborted) throw new OperationCancelledError();
+  };
+
+  // All generated artifacts stay operation-scoped until every validator and
+  // renderer succeeds, preserving the previous valid CV during regeneration.
+  fs.writeFileSync(path.join(stagingDir, "job-description.md"), fullJd, "utf8");
 
   // Save Tailoring Diff
   fs.writeFileSync(
-    path.join(jobDir, "tailoring-diff.json"),
+    path.join(stagingDir, "tailoring-diff.json"),
     JSON.stringify(aiResult.tailoring_diff, null, 2),
     "utf8"
   );
 
-  // Assemble full CV payload conforming to build-cv-html.mjs
   const payload = {
     lang: candidate.outputLanguage,
     page_format: "a4",
     candidate: {
-      name: candidate.name,
+      ...candidateContactFields(candidate),
       title: aiResult.headline || candidate.headline,
-      email: candidate.email,
-      phone: candidate.phone,
-      location: candidate.location,
-      linkedin: candidate.linkedin,
-      portfolio: candidate.portfolio,
-      github: candidate.github
+      headline: aiResult.headline || candidate.headline
     },
     sections: {
       summary: "Professional Summary",
@@ -414,111 +585,66 @@ export async function renderAndValidateTailoredCv(
     skills: aiResult.skills,
     experience: aiResult.experience,
     projects: aiResult.projects,
-    education: supporting.education,
-    certifications: supporting.certifications,
-    interests: [supporting.languages.join(" · ")]
+    education: parsedMaster.education,
+    certifications: parsedMaster.certifications,
+    interests: parsedMaster.languages.length ? [parsedMaster.languages.join(" · ")] : []
   };
 
-  // Generate markdown representation
-  let markdownCv = `# ${candidate.name}\n`;
-  markdownCv += `**${payload.candidate.title}**\n\n`;
-  markdownCv += `${payload.candidate.email} | ${payload.candidate.phone} | ${payload.candidate.location}\n`;
-  markdownCv += `Portfolio: ${payload.candidate.portfolio} | GitHub: ${payload.candidate.github} | LinkedIn: ${payload.candidate.linkedin}\n\n`;
-  markdownCv += `## Professional Summary\n${payload.summary}\n\n`;
-  markdownCv += `## Technical Skills\n`;
-  for (const sk of payload.skills) {
-    markdownCv += `- **${sk.category}**: ${sk.items}\n`;
-  }
-  markdownCv += `\n## Work Experience\n`;
-  for (const exp of payload.experience) {
-    markdownCv += `### ${exp.company} — ${exp.role}\n*${exp.dates} | ${exp.location}*\n`;
-    for (const b of exp.bullets) {
-      markdownCv += `- ${b}\n`;
-    }
-    markdownCv += `\n`;
-  }
-  markdownCv += `## Key Projects\n`;
-  for (const p of payload.projects) {
-    markdownCv += `### ${p.name} (${p.tech})\n${p.description}\n\n`;
-  }
-  markdownCv += `## Education\n`;
-  for (const edu of payload.education) {
-    markdownCv += `- **${edu.title}** -- ${edu.org} (${edu.year})\n`;
-  }
-  markdownCv += `\n## Professional Development\n`;
-  for (const cert of payload.certifications) {
-    markdownCv += `- **${cert.title}** -- ${cert.org} (${cert.year})\n`;
-  }
-  markdownCv += `\n## Languages\n`;
-  markdownCv += `- ${payload.interests[0]}\n`;
-  fs.writeFileSync(path.join(jobDir, "tailored-cv.md"), markdownCv, "utf8");
+  const markdownPath = path.join(stagingDir, "tailored-cv.md");
+  fs.writeFileSync(markdownPath, writeMarkdownCv(payload, candidate.name), "utf8");
 
-  // Step 4: Write JSON for HTML builder
-  const tmpJsonPath = `/tmp/cv-${baseSlug}.json`;
+  const tmpJsonPath = path.join(stagingDir, "cv-payload.json");
   fs.writeFileSync(tmpJsonPath, JSON.stringify(payload, null, 2), "utf8");
 
-  const localHtmlPath = path.join(jobDir, "tailored-cv.html");
+  const localHtmlPath = path.join(stagingDir, "tailored-cv.html");
+  const localPdfPath = path.join(stagingDir, "tailored-cv.pdf");
   const outputHtmlPath = path.join(WORKSPACE_ROOT, "output", `cv-${candidateSlug}-${baseSlug}.html`);
-
-  if (onProgress) onProgress("Running Fact Validation (verify-cv-facts.mjs)...");
-
-  // Build HTML
-  try {
-    execFileSync("node", ["build-cv-html.mjs", tmpJsonPath, localHtmlPath], { stdio: "pipe" });
-    fs.copyFileSync(localHtmlPath, outputHtmlPath);
-  } catch (buildErr: any) {
-    throw new Error(`Failed to build HTML CV: ${buildErr.message}`);
-  }
-
-  // Run fact verification gate
-  let factPass = false;
-  let factMsg = "PASS";
-  try {
-    const factOut = execFileSync("node", ["verify-cv-facts.mjs", localHtmlPath], { stdio: "pipe" }).toString();
-    factPass = true;
-    factMsg = "PASS (0 unsupported claims)";
-  } catch (factErr: any) {
-    const errOut = factErr.stdout ? factErr.stdout.toString() : factErr.message;
-    // If strict fact check fails due to vocabulary, we fail loudly as requested in Requirement 7
-    throw new Error(`Fact Validation Failed: ${errOut}`);
-  }
-
-  if (onProgress) onProgress("Compiling ATS-Compliant 2-Page PDF...");
-
-  // Generate PDF
-  const localPdfPath = path.join(jobDir, "tailored-cv.pdf");
   const outputPdfPath = path.join(WORKSPACE_ROOT, "output", `cv-${candidateSlug}-${baseSlug}.pdf`);
 
+  let pageCount = 0;
+  let metadata!: TailorJobMetadata;
   try {
-    execFileSync("node", ["generate-pdf.mjs", localHtmlPath, localPdfPath, "--format=a4"], { stdio: "pipe" });
-    fs.copyFileSync(localPdfPath, outputPdfPath);
-  } catch (pdfErr: any) {
-    throw new Error(`Failed to render PDF: ${pdfErr.message}`);
-  }
+    ({ pageCount } = await renderHtmlAndPdf(tmpJsonPath, localHtmlPath, localPdfPath, onProgress, options.signal));
+    assertNotCancelled();
 
-  const metadata: TailorJobMetadata = {
+  const llmTailoringExecuted = aiResult._fallbackUsed !== true && Boolean(aiResult._providerId);
+  metadata = {
     jobId: job.id,
     company: job.company,
     role: job.title,
     url: job.url,
     location: job.location,
     generatedAt: new Date().toISOString(),
-    provider: aiResult._providerId || "unknown",
-    model: aiResult._modelUsed || "default",
+    provider: aiResult._providerId || "cv.md",
+    model: aiResult._modelUsed || "master",
     durationMs: aiResult._durationMs || 0,
     success: true,
     factCheck: "passed",
-    aiProvider: aiResult._providerName || aiResult._providerId || "Unknown",
-    aiModel: aiResult._modelUsed || "default",
-    llmTailoringExecuted: true,
-    factValidation: factMsg,
-    pages: 2,
+    aiProvider: aiResult._providerName || aiResult._providerId || (llmTailoringExecuted ? "Unknown" : "cv.md fallback"),
+    aiModel: aiResult._modelUsed || "master",
+    llmTailoringExecuted,
+    factValidation: "PASS (0 unsupported claims)",
+    pages: pageCount,
+    primaryDomain: aiResult.primary_domain || enforced.classified.primary,
+    secondaryDomains: aiResult.secondary_domains || enforced.classified.secondary,
     tailoringDiff: aiResult.tailoring_diff,
     htmlPath: outputHtmlPath,
     pdfPath: outputPdfPath
   };
 
-  fs.writeFileSync(path.join(jobDir, "metadata.json"), JSON.stringify(metadata, null, 2), "utf8");
+    fs.writeFileSync(path.join(stagingDir, "metadata.json"), JSON.stringify(metadata, null, 2), "utf8");
+    if (onProgress) onProgress("Saving Artifacts");
+    assertNotCancelled();
+
+    const files = ["job-description.md", "tailored-cv.md", "tailored-cv.html", "tailored-cv.pdf", "tailoring-diff.json", "metadata.json"]
+      .map((name) => ({ staged: path.join(stagingDir, name), destination: path.join(jobDir, name) }));
+    files.push({ staged: localHtmlPath, destination: outputHtmlPath }, { staged: localPdfPath, destination: outputPdfPath });
+    publishGenerationArtifacts(files, operationId, options.signal);
+  } finally {
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+    const tmpRoot = path.join(jobDir, ".tmp");
+    try { if (fs.existsSync(tmpRoot) && fs.readdirSync(tmpRoot).length === 0) fs.rmdirSync(tmpRoot); } catch { /* best effort */ }
+  }
 
   return {
     jobDir,
@@ -527,4 +653,24 @@ export async function renderAndValidateTailoredCv(
     pdfPath: outputPdfPath,
     markdownPath: path.join(jobDir, "tailored-cv.md")
   };
+}
+
+export function renderMasterCv(onProgress?: (stage: string) => void): {
+  htmlPath: string;
+  pdfPath: string;
+  filename: string;
+} {
+  const payload = buildMasterCvPayload();
+  const { htmlPath, pdfPath } = masterOutputPaths();
+  const tmpJsonPath = "/tmp/cv-master.json";
+  fs.mkdirSync(path.join(WORKSPACE_ROOT, "output"), { recursive: true });
+  fs.writeFileSync(tmpJsonPath, JSON.stringify(payload, null, 2), "utf8");
+  if (onProgress) onProgress("Rendering ATS PDF from cv.md...");
+  // Master CV remains the synchronous, non-AI path. Tailored CV generation
+  // uses the cancellable async renderer above.
+  execFileSync("node", ["build-cv-html.mjs", tmpJsonPath, htmlPath], { cwd: WORKSPACE_ROOT, stdio: "pipe" });
+  execFileSync("node", ["verify-cv-facts.mjs", htmlPath, ...factSourceArgs()], { cwd: WORKSPACE_ROOT, stdio: "pipe" });
+  const pdfSourceFlags = factSourceArgs().filter((_, index) => index % 2 === 1).map((file) => `--source=${file}`);
+  execFileSync("node", ["generate-pdf.mjs", htmlPath, pdfPath, "--format=a4", ...pdfSourceFlags], { cwd: WORKSPACE_ROOT, stdio: "pipe" });
+  return { htmlPath, pdfPath, filename: path.basename(pdfPath) };
 }

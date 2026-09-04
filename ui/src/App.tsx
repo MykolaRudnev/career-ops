@@ -11,10 +11,15 @@ import {
   isBestMatchOffer,
   evaluateJob,
   generateTailoredCv,
+  generateCoverLetter,
+  fetchCoverLetter,
+  generateMasterCv,
   updateJobStatus,
   openTarget,
   fetchTailoringDiff,
   fetchAiProviders,
+  fetchOperations,
+  cancelOperation,
   updateAiConfig,
   testAiProvider,
   type PipelineJob,
@@ -22,8 +27,12 @@ import {
   type TailoredCvFile,
   type TailoringDiffData,
   type AiProviderInfo,
-  type AiProviderTestResult
+  type AiProviderTestResult,
+  type OperationRecord,
+  type CoverLetterArtifact
 } from "./api";
+import { ManualJobBoard } from "./ManualJobBoard";
+import { CoverLetterModal } from "./CoverLetterModal";
 import {
   Search,
   FileText,
@@ -55,9 +64,10 @@ export function App() {
   const [isTestingProvider, setIsTestingProvider] = useState(false);
   const [providerTest, setProviderTest] = useState<AiProviderTestResult | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"pending" | "processed">("pending");
+  const [activeTab, setActiveTab] = useState<"pending" | "processed" | "manual">("pending");
   const [searchQuery, setSearchQuery] = useState("");
   const [modelFilter, setModelFilter] = useState<"ALL" | "Remote" | "Hybrid" | "Office">("ALL");
+  const [countryFilter, setCountryFilter] = useState("ALL");
   const [matchCategory, setMatchCategory] = useState<
     "ALL" | "BEST_MATCH" | "REACT_NEXT" | "SHOPIFY" | "MAGENTO" | "NODE" | "SENIOR_LEAD"
   >("ALL");
@@ -68,19 +78,25 @@ export function App() {
   const [isReranking, setIsReranking] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState<string | null>(null);
   const [isTailoring, setIsTailoring] = useState<string | null>(null);
+  const [isGeneratingMaster, setIsGeneratingMaster] = useState(false);
   const [viewingDiff, setViewingDiff] = useState<TailoringDiffData | null>(null);
   const [isLoadingDiff, setIsLoadingDiff] = useState(false);
   const [showLogOutput, setShowLogOutput] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [operations, setOperations] = useState<OperationRecord[]>([]);
+  const [cancellingOperationId, setCancellingOperationId] = useState<string | null>(null);
+  const [coverJob, setCoverJob] = useState<PipelineJob | null>(null);
+  const [coverArtifact, setCoverArtifact] = useState<CoverLetterArtifact | null>(null);
 
   const loadData = async () => {
     try {
-      const [sData, pData, cvData, aData, aiData] = await Promise.all([
+      const [sData, pData, cvData, aData, aiData, operationData] = await Promise.all([
         fetchStatus(),
         fetchPipeline(),
         fetchTailoredCvs(),
         fetchActivity(),
-        fetchAiProviders()
+        fetchAiProviders(),
+        fetchOperations()
       ]);
       setStatus(sData);
       setPendingJobs(pData.pending);
@@ -90,6 +106,9 @@ export function App() {
       setAiProviders(aiData.providers);
       setSelectedProviderId(aiData.defaultProvider);
       setFallbackEnabled(aiData.fallbackEnabled);
+      setOperations(operationData);
+      const running = operationData.find((item) => item.type === "TAILORED_CV" && ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
+      setIsTailoring(running?.jobId || null);
       const configured = aiData.providers.find((provider) => provider.id === aiData.defaultProvider);
       setSelectedModel(configured?.selectedModel || "default");
     } catch (e: any) {
@@ -98,10 +117,37 @@ export function App() {
   };
 
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- synchronize initial dashboard state with the backend
     loadData();
     const interval = setInterval(() => {
-      fetchActivity().then(setActivity).catch(() => {});
-    }, 4000);
+      Promise.all([fetchActivity(), fetchOperations()]).then(([nextActivity, nextOperations]) => {
+        setActivity(nextActivity);
+        setOperations((current) => {
+          const wasActive = current.some((item) => ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
+          const isActive = nextOperations.some((item) => ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
+          if (wasActive && !isActive) {
+            const latest = nextOperations[0];
+            const label = latest?.type === "COVER_LETTER" ? "Cover Letter" : "Tailored CV";
+            const message = latest?.status === "COMPLETED"
+              ? `${label} is READY.`
+              : latest?.status === "CANCELLED"
+                ? `${label} generation cancelled. Previous artifacts remain available.`
+                : latest?.errorType === "TIMEOUT"
+                  ? latest.error || "Provider timed out."
+                  : latest?.error || "CV generation failed.";
+            setActionNotice(message);
+            if (latest?.type === "COVER_LETTER" && latest?.status === "COMPLETED" && latest?.result?.artifact) {
+              setCoverArtifact(latest.result.artifact);
+            }
+            setTimeout(() => setActionNotice(null), 5000);
+            void loadData();
+          }
+          return nextOperations;
+        });
+        const running = nextOperations.find((item) => item.type === "TAILORED_CV" && ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
+        setIsTailoring(running?.jobId || null);
+      }).catch(() => {});
+    }, 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -233,36 +279,63 @@ export function App() {
     setIsTailoring(job.id);
     showNotification(`Starting AI tailoring for ${job.company} (${selectedProvider?.name || selectedProviderId})...`);
     try {
-      const result = await generateTailoredCv(job, selectedProviderId, selectedModel);
-      if (result.success) {
-        showNotification(`Tailored CV generated with ${result.aiProvider}: ${result.filename} (${result.pages} pages)`);
-        await loadData();
-        if (result.tailoringDiff) {
-          const diffData: TailoringDiffData = {
-            jobId: job.id,
-            company: job.company,
-            role: job.title,
-            url: job.url,
-            location: job.location,
-            generatedAt: new Date().toISOString(),
-            aiProvider: result.aiProvider || selectedProvider?.name || selectedProviderId,
-            aiModel: result.aiModel || selectedModel,
-            llmTailoringExecuted: true,
-            factValidation: "PASS (0 unsupported claims)",
-            pages: result.pages,
-            tailoringDiff: result.tailoringDiff,
-            htmlPath: result.htmlPath,
-            pdfPath: result.pdfPath
-          };
-          setViewingDiff(diffData);
-        }
-      } else {
-        showNotification(`CV generation failed: ${result.error}`);
-      }
+      const operation = await generateTailoredCv(job, selectedProviderId, selectedModel);
+      setOperations((current) => [operation, ...current.filter((item) => item.operationId !== operation.operationId)]);
+      showNotification(`Tailored CV generation started (${operation.currentStage}).`);
     } catch (e: any) {
       showNotification(`Error generating CV: ${e.message}`);
+    } finally { /* polling owns the active state until the backend reaches a terminal status */ }
+  };
+
+  const handleCoverLetter = async (job: PipelineJob, regenerate = false) => {
+    setCoverJob(job);
+    try {
+      if (!regenerate) {
+        const existing = await fetchCoverLetter(job);
+        if (existing) {
+          setCoverArtifact(existing);
+          return;
+        }
+      }
+      setCoverArtifact(null);
+      const operation = await generateCoverLetter(job, selectedProviderId, selectedModel);
+      setOperations((current) => [operation, ...current.filter((item) => item.operationId !== operation.operationId)]);
+      showNotification(`Generating Cover Letter with ${selectedProvider?.name || selectedProviderId}...`);
+    } catch (error: any) {
+      showNotification(`Cover Letter error: ${error.message}`);
+    }
+  };
+
+  const handleSelectJob = (job: PipelineJob) => {
+    setSelectedJob(job);
+    setCoverArtifact(null);
+    void fetchCoverLetter(job).then(setCoverArtifact).catch(() => {});
+  };
+
+  const handleCancelOperation = async (operationId: string) => {
+    setCancellingOperationId(operationId);
+    try {
+      const operation = await cancelOperation(operationId);
+      setOperations((current) => current.map((item) => item.operationId === operationId ? operation : item));
+      showNotification("Cancelling CV generation...");
+    } catch (e: any) {
+      showNotification(`Cancellation failed: ${e.message}`);
     } finally {
-      setIsTailoring(null);
+      setCancellingOperationId(null);
+    }
+  };
+
+  const handleGenerateMasterCv = async () => {
+    setIsGeneratingMaster(true);
+    showNotification("Rendering ATS PDF from cv.md...");
+    try {
+      const result = await generateMasterCv();
+      await loadData();
+      showNotification(`Simple ATS CV generated from cv.md: ${result.filename}`);
+    } catch (e: any) {
+      showNotification(`Master CV generation failed: ${e.message}`);
+    } finally {
+      setIsGeneratingMaster(false);
     }
   };
 
@@ -304,12 +377,18 @@ export function App() {
     }
   };
 
-  const currentList = activeTab === "pending" ? pendingJobs : processedJobs;
+  const currentList = activeTab === "processed" ? processedJobs : pendingJobs;
+  const activeOperation = operations.find((item) => ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
+  const activeCvOperation = operations.find((item) => item.type === "TAILORED_CV" && ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
+  const activeCoverOperation = operations.find((item) => item.type === "COVER_LETTER" && ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
+  const selectedOperation = selectedJob && activeCvOperation?.jobId === selectedJob.id ? activeCvOperation : undefined;
+  const selectedCoverOperation = selectedJob && activeCoverOperation?.jobId === selectedJob.id ? activeCoverOperation : undefined;
+  const latestOperation = operations[0];
 
   const bestMatchCount = currentList.filter(isBestMatchOffer).length;
   const reactNextCount = currentList.filter((j) => {
-    const t = j.title.toLowerCase();
-    return t.includes("react") || t.includes("next");
+    const t = j.title.replace(/react[\s-]?native/gi, " ").toLowerCase();
+    return /\breact\b/.test(t) || t.includes("next");
   }).length;
   const shopifyCount = currentList.filter((j) => {
     const t = (j.title + " " + (j.extra || "")).toLowerCase();
@@ -328,6 +407,12 @@ export function App() {
     return t.includes("senior") || t.includes("lead") || t.includes("principal") || t.includes("staff");
   }).length;
 
+  const countryCounts = currentList.reduce((counts, job) => {
+    for (const country of job.countries || ["Unknown"]) counts.set(country, (counts.get(country) || 0) + 1);
+    return counts;
+  }, new Map<string, number>());
+  const countryOptions = [...countryCounts.entries()].sort(([a], [b]) => a.localeCompare(b));
+
   const filteredJobs = currentList.filter((job) => {
     const q = searchQuery.toLowerCase();
     const matchSearch =
@@ -335,13 +420,14 @@ export function App() {
       job.company.toLowerCase().includes(q) ||
       job.location.toLowerCase().includes(q);
     const matchModel = modelFilter === "ALL" || job.workModel === modelFilter;
+    const matchCountry = countryFilter === "ALL" || (job.countries || ["Unknown"]).includes(countryFilter);
 
     let matchCat = true;
     if (matchCategory === "BEST_MATCH") {
       matchCat = isBestMatchOffer(job);
     } else if (matchCategory === "REACT_NEXT") {
-      const t = job.title.toLowerCase();
-      matchCat = t.includes("react") || t.includes("next");
+      const t = job.title.replace(/react[\s-]?native/gi, " ").toLowerCase();
+      matchCat = /\breact\b/.test(t) || t.includes("next");
     } else if (matchCategory === "SHOPIFY") {
       const t = (job.title + " " + (job.extra || "")).toLowerCase();
       matchCat = t.includes("shopify");
@@ -356,7 +442,7 @@ export function App() {
       matchCat = t.includes("senior") || t.includes("lead") || t.includes("principal") || t.includes("staff");
     }
 
-    return matchSearch && matchModel && matchCat;
+    return matchSearch && matchModel && matchCountry && matchCat;
   }).sort((a, b) => (b.compatibilityPercent || 0) - (a.compatibilityPercent || 0));
 
   return (
@@ -508,6 +594,10 @@ export function App() {
             <button className="btn btn-secondary btn-sm" onClick={() => handleOpen("master-cv")}>
               <FileText size={14} /> Open Master CV (cv.md)
             </button>
+            <button className="btn btn-primary btn-sm" onClick={handleGenerateMasterCv} disabled={isGeneratingMaster || isTailoring !== null}>
+              {isGeneratingMaster ? <span className="spinner" /> : <FileCheck size={14} />}
+              {isGeneratingMaster ? "Rendering..." : "Generate ATS PDF from cv.md"}
+            </button>
             {status?.masterCv.pdfExists && (
               <button className="btn btn-secondary btn-sm" onClick={() => handleOpen("master-pdf")}>
                 <FileCheck size={14} /> Open Source Master PDF
@@ -608,20 +698,20 @@ export function App() {
           </div>
           <div className="stat-box">
             <span className="stat-label">Total Discovered</span>
-            <span className="stat-value">{status?.lastScan?.totalDiscovered || 7434}</span>
+            <span className="stat-value">{status?.lastScan?.totalDiscovered ?? 0}</span>
           </div>
           <div className="stat-box">
             <span className="stat-label">Filtered</span>
-            <span className="stat-value">{status?.lastScan?.totalFiltered || 6631}</span>
+            <span className="stat-value">{status?.lastScan?.totalFiltered ?? 0}</span>
           </div>
           <div className="stat-box">
             <span className="stat-label">Duplicates</span>
-            <span className="stat-value">{status?.lastScan?.totalDuplicates || 165}</span>
+            <span className="stat-value">{status?.lastScan?.totalDuplicates ?? 0}</span>
           </div>
           <div className="stat-box">
             <span className="stat-label">New Eligible Added</span>
             <span className="stat-value" style={{ color: "#34d399" }}>
-              {status?.lastScan?.totalAdded || 638}
+              {status?.lastScan?.totalAdded ?? 0}
             </span>
           </div>
         </div>
@@ -642,6 +732,12 @@ export function App() {
               >
                 Processed / History ({processedJobs.length})
               </button>
+              <button
+                className={`tab-btn ${activeTab === "manual" ? "active" : ""}`}
+                onClick={() => setActiveTab("manual")}
+              >
+                Manual Job
+              </button>
             </div>
 
             <input
@@ -650,12 +746,12 @@ export function App() {
               placeholder="Filter by title, company, or city..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ minWidth: "240px", flex: 1 }}
+              style={{ minWidth: "240px", flex: 1, display: activeTab === "manual" ? "none" : "block" }}
             />
           </div>
 
           {/* Offer Focus Categories & Work Model */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
+          <div style={{ display: activeTab === "manual" ? "none" : "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
             <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontSize: "12px", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "4px" }}>
                 <Filter size={13} /> Filter:
@@ -708,7 +804,16 @@ export function App() {
               </button>
             </div>
 
-            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+              <label className="country-filter-label">
+                Country:
+                <select className="country-filter" value={countryFilter} onChange={(event) => setCountryFilter(event.target.value)}>
+                  <option value="ALL">All countries ({currentList.length})</option>
+                  {countryOptions.map(([country, count]) => (
+                    <option key={country} value={country}>{country} ({count})</option>
+                  ))}
+                </select>
+              </label>
               <button className="btn btn-outline btn-sm" disabled={isReranking} onClick={handleRerank} title="Re-score all active jobs and load full JDs for the leading contenders">
                 {isReranking ? <span className="spinner" /> : <RefreshCw size={13} />} Re-rank
               </button>
@@ -726,8 +831,27 @@ export function App() {
           </div>
         </div>
 
+        {activeTab === "manual" && (
+          <ManualJobBoard
+            providerId={selectedProviderId}
+            model={selectedModel}
+            providerName={selectedProvider?.name || selectedProviderId}
+            disabled={Boolean(activeOperation)}
+            notify={showNotification}
+            onOperation={(operation) => {
+              setOperations((current) => [operation, ...current.filter((item) => item.operationId !== operation.operationId)]);
+              setIsTailoring(operation.jobId);
+            }}
+            onSaved={() => { void loadData(); }}
+            onOpenExisting={(job) => {
+              setActiveTab(job.status === "pending" ? "pending" : "processed");
+              handleSelectJob(job);
+            }}
+          />
+        )}
+
         {/* Pipeline Table */}
-        <div className="table-container">
+        <div className="table-container" style={{ display: activeTab === "manual" ? "none" : "block" }}>
           <table className="jobs-table">
             <thead>
               <tr>
@@ -757,25 +881,45 @@ export function App() {
                     else scoreClass = "score-low";
                   }
 
-                  const sourceHost = job.url.includes("justjoin.it")
+                  const sourceHost = job.manualEntry
+                    ? "Manual"
+                    : job.url.includes("justjoin.it")
                     ? "JustJoin.it"
                     : job.url.includes("nofluffjobs.com")
                     ? "NoFluffJobs"
                     : job.url.includes("solid.jobs")
                     ? "SolidJobs"
+                    : job.url.includes("pracuj.pl")
+                    ? "Pracuj.pl"
+                    : job.url.includes("linkedin.com")
+                    ? "LinkedIn"
+                    : job.url.includes("theprotocol.it")
+                    ? "The Protocol"
+                    : job.url.includes("jobs.pl")
+                    ? "Jobs.pl"
+                    : job.url.includes("bulldogjob.pl")
+                    ? "Bulldogjob"
+                    : job.url.includes("rocketjobs.pl")
+                    ? "RocketJobs"
+                    : job.url.includes("indeed.com")
+                    ? "Indeed"
+                    : job.url.includes("glassdoor.")
+                    ? "Glassdoor"
                     : job.url.includes("greenhouse.io")
                     ? "Greenhouse"
                     : "Direct";
 
+                  const jobOperation = activeCvOperation?.jobId === job.id ? activeCvOperation : undefined;
                   return (
                     <tr
                       key={job.id}
-                      onClick={() => setSelectedJob(job)}
+                      onClick={() => handleSelectJob(job)}
                       className={selectedJob?.id === job.id ? "selected" : ""}
                     >
                       <td style={{ fontWeight: 600, color: "#fff" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                           <span>{job.title}</span>
+                          {job.manualEntry && <span className="badge badge-manual">MANUAL</span>}
                           {job.matchClassification && (
                             <span className={`badge-match badge-match-${job.matchClassification.toLowerCase().replaceAll(" ", "-")}`} title={job.reason}>
                               {isBestMatchOffer(job) && <Star size={11} fill="#facc15" />}{job.matchClassification}
@@ -792,7 +936,11 @@ export function App() {
                             </span>
                           )}
                         </div>
-                        {job.reason && <div className="match-reason">{job.reason}{job.compatibilityPercent ? ` | ${job.compatibilityPercent}% compatible` : ""}</div>}
+                        {(job.reasonDisplay || job.reason) && (
+                          <div className="match-reason">
+                            {job.reasonDisplay || `${job.matchClassification} Reason: ${job.reason}${job.compatibilityPercent ? ` | ${job.compatibilityPercent}% compatible` : ""}`}
+                          </div>
+                        )}
                       </td>
                       <td style={{ color: "#38bdf8" }}>{job.company}</td>
                       <td>{job.location}</td>
@@ -839,16 +987,13 @@ export function App() {
                           {job.status}
                         </span>
                       </td>
-                      <td>{sourceHost}</td>
+                      <td>
+                        <span>{sourceHost}</span>
+                        {job.manualEntry && job.addedAt && <div className="source-added">Added {new Date(job.addedAt).toLocaleString()}</div>}
+                      </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: "flex", gap: "6px" }}>
-                          <button
-                            className="btn btn-outline btn-sm"
-                            title="Open external job URL"
-                            onClick={() => handleOpen("url", job.url)}
-                          >
-                            <ExternalLink size={12} />
-                          </button>
+                          {job.url.startsWith("http") && <button className="btn btn-outline btn-sm" title="Open external job URL" onClick={() => handleOpen("url", job.url)}><ExternalLink size={12} /></button>}
                           <button
                             className="btn btn-secondary btn-sm"
                             title="Run LLM evaluation"
@@ -860,11 +1005,19 @@ export function App() {
                           <button
                             className="btn btn-primary btn-sm"
                             title="Generate AI-Tailored CV PDF"
-                            disabled={isTailoring === job.id}
+                            disabled={Boolean(activeOperation)}
                             onClick={() => handleTailorCv(job)}
                           >
-                            {isTailoring === job.id ? <span className="spinner" /> : "Tailor CV"}
+                            {jobOperation ? <><span className="spinner" /> {jobOperation.currentStage}</> : "Tailor CV"}
                           </button>
+                          <button className="btn btn-outline btn-sm" title="Generate or view Cover Letter" disabled={Boolean(activeOperation)} onClick={() => void handleCoverLetter(job)}>
+                            Cover
+                          </button>
+                          {jobOperation && (
+                            <button className="btn btn-danger btn-sm" disabled={jobOperation.status === "CANCELLING" || cancellingOperationId === jobOperation.operationId} onClick={() => void handleCancelOperation(jobOperation.operationId)}>
+                              {jobOperation.status === "CANCELLING" || cancellingOperationId === jobOperation.operationId ? "Cancelling..." : "Cancel"}
+                            </button>
+                          )}
                           {job.hasTailoredCv && (
                             <button
                               className="btn btn-outline btn-sm"
@@ -894,7 +1047,7 @@ export function App() {
             <div className="modal-header">
               <div>
                 <h2 className="modal-title">{selectedJob.title}</h2>
-                <div className="modal-company">{selectedJob.company}</div>
+                <div className="modal-company">{selectedJob.company} {selectedJob.manualEntry && <span className="badge badge-manual">MANUAL</span>}</div>
               </div>
               <button
                 className="btn btn-outline btn-sm"
@@ -962,8 +1115,7 @@ export function App() {
 
               {selectedJob.matchClassification && (
                 <div className="match-explanation">
-                  <strong>{selectedJob.matchClassification}</strong>
-                  <span>{selectedJob.reason}</span>
+                  <strong>{selectedJob.reasonDisplay || `${selectedJob.matchClassification} Reason: ${selectedJob.reason}`}</strong>
                   <span>{selectedJob.compatibilityPercent}% compatible · Tier {selectedJob.compatibilityTier} · {selectedJob.evaluatedFrom === "full-jd" ? "full JD analyzed" : "pipeline summary; run evaluation for full JD"}</span>
                   {selectedJob.primaryStack && selectedJob.primaryStack.length > 0 && <span>Detected stack: {selectedJob.primaryStack.join(" · ")}</span>}
                   {selectedJob.responsibilitySplit && <span>Responsibilities: frontend {selectedJob.responsibilitySplit.frontend}, backend {selectedJob.responsibilitySplit.backend}, platform {selectedJob.responsibilitySplit.platform}</span>}
@@ -1006,12 +1158,33 @@ export function App() {
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                 <button
                   className="btn btn-primary"
-                  disabled={isTailoring === selectedJob.id}
+                  disabled={Boolean(activeOperation)}
                   onClick={() => handleTailorCv(selectedJob)}
                 >
-                  {isTailoring === selectedJob.id ? <span className="spinner" /> : <Sparkles size={14} />}
-                  Generate Tailored CV
+                  {selectedOperation ? <span className="spinner" /> : <Sparkles size={14} />}
+                  {selectedOperation ? selectedOperation.currentStage : "Generate Tailored CV"}
                 </button>
+                {selectedOperation && (
+                  <button className="btn btn-danger" disabled={selectedOperation.status === "CANCELLING" || cancellingOperationId === selectedOperation.operationId} onClick={() => void handleCancelOperation(selectedOperation.operationId)}>
+                    {selectedOperation.status === "CANCELLING" || cancellingOperationId === selectedOperation.operationId ? "Cancelling..." : "Cancel"}
+                  </button>
+                )}
+                <button
+                  className="btn btn-secondary"
+                  disabled={Boolean(activeOperation)}
+                  onClick={() => void handleCoverLetter(selectedJob, Boolean(coverArtifact))}
+                >
+                  {selectedCoverOperation ? <span className="spinner" /> : <FileText size={14} />}
+                  {selectedCoverOperation ? selectedCoverOperation.currentStage : coverArtifact ? "Regenerate Cover Letter" : "Generate Cover Letter"}
+                </button>
+                {selectedCoverOperation && (
+                  <button className="btn btn-danger" disabled={selectedCoverOperation.status === "CANCELLING" || cancellingOperationId === selectedCoverOperation.operationId} onClick={() => void handleCancelOperation(selectedCoverOperation.operationId)}>
+                    {selectedCoverOperation.status === "CANCELLING" || cancellingOperationId === selectedCoverOperation.operationId ? "Cancelling..." : "Cancel"}
+                  </button>
+                )}
+                {coverArtifact && !selectedCoverOperation && (
+                  <button className="btn btn-outline" onClick={() => { setCoverJob(selectedJob); }}>View Cover Letter</button>
+                )}
                 {selectedJob.hasTailoredCv && (
                   <button
                     className="btn btn-outline"
@@ -1021,12 +1194,12 @@ export function App() {
                     🔍 View Tailoring Changes
                   </button>
                 )}
-                <button
+                {selectedJob.url.startsWith("http") && <button
                   className="btn btn-secondary"
                   onClick={() => handleOpen("url", selectedJob.url)}
                 >
                   <ExternalLink size={14} /> Open Original Job
-                </button>
+                </button>}
               </div>
 
               <div style={{ display: "flex", gap: "8px" }}>
@@ -1053,6 +1226,19 @@ export function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {coverJob && coverArtifact && (
+        <CoverLetterModal
+          key={`${coverArtifact.metadata.generatedAt}-${coverArtifact.metadata.editCount || 0}`}
+          job={coverJob}
+          artifact={coverArtifact}
+          generating={Boolean(activeCoverOperation)}
+          notify={showNotification}
+          onClose={() => setCoverJob(null)}
+          onRegenerate={() => void handleCoverLetter(coverJob, true)}
+          onSaved={setCoverArtifact}
+        />
       )}
 
       {/* SECTION 4B: AI TAILORING DIFF MODAL */}
@@ -1101,6 +1287,14 @@ export function App() {
                 <div><strong>Provider:</strong> {viewingDiff.aiProvider}</div>
                 <div><strong>Fact Check:</strong> <span style={{ color: "#34d399" }}>{viewingDiff.factValidation}</span></div>
                 <div><strong>Page Budget:</strong> {viewingDiff.pages} pages</div>
+                {(viewingDiff.primaryDomain || viewingDiff.tailoringDiff?.primary_domain) && (
+                  <div>
+                    <strong>Primary domain:</strong>{" "}
+                    <span style={{ color: "#c084fc" }}>
+                      {viewingDiff.primaryDomain || viewingDiff.tailoringDiff?.primary_domain}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Summary Focus */}
@@ -1206,9 +1400,9 @@ export function App() {
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <Clock size={16} color="#06b6d4" />
             <span>Section 5 — Activity & Engine Status:</span>
-            {activity?.currentOp ? (
+            {activeOperation ? (
               <span style={{ color: "#38bdf8", display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="spinner" /> {activity.currentOp.name}
+                <span className="spinner" /> {activeOperation.type === "COVER_LETTER" ? "Cover Letter" : "Tailored CV"} — {activeOperation.currentStage}
               </span>
             ) : (
               <span style={{ color: "#34d399" }}>Idle · Ready</span>
@@ -1216,6 +1410,16 @@ export function App() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            {activeOperation && (
+              <button className="btn btn-danger btn-sm" disabled={activeOperation.status === "CANCELLING" || cancellingOperationId === activeOperation.operationId} onClick={() => void handleCancelOperation(activeOperation.operationId)}>
+                {activeOperation.status === "CANCELLING" || cancellingOperationId === activeOperation.operationId ? "Cancelling..." : "Cancel"}
+              </button>
+            )}
+            {!activeOperation && latestOperation && (
+              <span className={`operation-result operation-${latestOperation.status.toLowerCase()}`}>
+                {latestOperation.status === "CANCELLED" ? "Generation cancelled" : latestOperation.status === "FAILED" ? (latestOperation.error || "Generation failed") : latestOperation.status === "COMPLETED" ? (latestOperation.type === "COVER_LETTER" ? "COVER LETTER READY" : "CV READY") : latestOperation.status}
+              </span>
+            )}
             {activity?.lastOp && (
               <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
                 Last: <strong>{activity.lastOp.name}</strong> ({activity.lastOp.status})
