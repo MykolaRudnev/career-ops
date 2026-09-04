@@ -519,6 +519,9 @@ export async function probeProvider(entry, provider, baseCtx) {
     if (err instanceof ProbePageBudgetReached) {
       return { provider: provider.id, status: 'live', partial: true };
     }
+    if (err?.code === 'EZIPRECRUITER_BLOCKED') {
+      return { provider: provider.id, status: 'blocked', reason: err.message || String(err) };
+    }
     return {
       provider: provider.id,
       status: 'missing',
@@ -624,7 +627,7 @@ export async function verifyPortalsFile(
   return { found: true, results };
 }
 
-const ICON = { live: '✅', empty: '🟡', missing: '❌', skipped: '➖' };
+const ICON = { live: '✅', empty: '🟡', blocked: '⛔', missing: '❌', skipped: '➖' };
 
 const ERROR_KIND_LABEL = {
   slug_gone: 'slug not found',
@@ -650,6 +653,8 @@ function printResults(results) {
       if (r.suggested) {
         detail += ` → try ${r.suggested.ats}/${r.suggested.slug}`;
       }
+    } else if (r.status === 'blocked') {
+      detail = `${source} (blocked) — ${r.reason || 'access control challenge'}`;
     } else {
       detail = r.reason || '';
     }
@@ -740,6 +745,7 @@ async function main() {
 
   const live = results.filter((r) => r.status === 'live').length;
   const empty = results.filter((r) => r.status === 'empty').length;
+  const blocked = results.filter((r) => r.status === 'blocked').length;
   const missing = results.filter((r) => r.status === 'missing');
   const skipped = results.filter((r) => r.status === 'skipped').length;
   const kindCounts = Object.fromEntries(
@@ -754,7 +760,7 @@ async function main() {
     .map(([k, n]) => `${n} ${ERROR_KIND_LABEL[k]}`)
     .join(', ');
   console.log(
-    `\n${live} live, ${empty} live-but-empty, ${missing.length} unresolved${breakdown ? ` (${breakdown})` : ''}, ${skipped} no-provider (skipped)`,
+    `\n${live} live, ${empty} live-but-empty, ${blocked} blocked, ${missing.length} unresolved${breakdown ? ` (${breakdown})` : ''}, ${skipped} no-provider (skipped)`,
   );
 
   if (strict && missing.length > 0) {

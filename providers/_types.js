@@ -112,6 +112,8 @@
  *                              paginating providers (avature, workday) to throttle between page
  *                              requests. May be absent — providers fall back to a native
  *                              `setTimeout`-based delay.
+ * @property {AbortSignal} [signal] Optional cancellation signal. Browser-backed
+ *                              providers close active pages/contexts when aborted.
  */
 
 /**
