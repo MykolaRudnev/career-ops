@@ -21,9 +21,15 @@ const BACKEND_STACKS = [
   { id: "PHP", patterns: [/\bphp\b/i, /\blaravel\b/i, /\bsymfony\b/i] }
 ];
 
-const OPTIONAL_CUE = /\b(optional|nice[ -]to[ -]have|preferred|bonus|advantage|(?:a|as a) plus|desirable|familiarity|exposure|mile widziane)\b/i;
+const OPTIONAL_CUE = /\b(optional|nice[ -]to[ -]have|preferred|bonus|advantage|(?:a|as a) plus|desirable|familiarity|exposure|good to have|w(?:u|ü)nschenswert|von vorteil|basic|fundamental(?:s)?)\b|mile\s+widziane|dodatkowym\s+atutem|atutem\s+b(?:e|ę)dzie|dobrze,?\s+je(?:s|ś)li|opcjonalnie|podstawowa\s+znajomo(?:s|ś)(?:ć|c)|znajomo(?:s|ś)(?:ć|c)\s+podstaw|podstawy|familiar\s+with|awareness\s+of/i;
 const MANDATORY_CUE = /\b(must|required|requirements?|mandatory|essential|need(?:ed)?|at least|minimum|proficien(?:t|cy)|strong experience|expertise|commercial experience|you have|we expect|wymagan|bardzo dobra znajomość)\b/i;
-const RESPONSIBILITY_CUE = /\b(build|develop|design|own|ownership|architect|maintain|deliver|implement|responsib|services?|apis?|microservices?|backend|frontend|user interface|web application)\b/i;
+const OPTIONAL_SECTION_HEADING = /^(?:optional|nice[ -]to[ -]have|preferred|bonus|good[ -]to[ -]have|advantage|desirable|mile\s+widziane|dodatkowym\s+atutem|atutem\s+b(?:e|ę)dzie|dobrze,?\s+je(?:s|ś)li|opcjonalnie|w(?:u|ü)nschenswert|von\s+vorteil)\b/i;
+const SECTION_HEADING = /^(?:(?:core\s+)?mandatory\s+)?(?:requirements?|qualifications?|responsibilities?|what you(?:'|’)ll do|your role|skills?|technologies?|wymagania|obowi(?:ą|a)zki|zakres obowi(?:ą|a)zk(?:o|ó)w|do(?:s|ś)wiadczenie|umiej(?:ę|e)tno(?:s|ś)ci|mile\s+widziane|dodatkowym\s+atutem|atutem\s+b(?:e|ę)dzie|opcjonalnie|w(?:u|ü)nschenswert|von\s+vorteil)\b/i;
+const RESPONSIBILITY_CUE = /\b(build|develop|design|own|ownership|architect|maintain|deliver|implement|responsib|services?|apis?|microservices?|server[ -]?side|backend architecture|backend systems?)\b|(?:rozw(?:o|ó)j|tworzenie|implementacja|projektowanie|utrzymanie|budowa|w(?:d|y)ro(?:z|ż)enie|tworzenie)\s+(?:backendu|us(?:l|ł)ug backendowych|api|mikroserwis(?:o|ó)w)/i;
+const BACKEND_OWNERSHIP_CUE = /\b(build|develop|design|own|ownership|architect|maintain|implement|create|write|deliver|responsib|services?|apis?|microservices?|server[ -]?side|backend architecture|backend systems?)\b|(?:rozw(?:o|ó)j|tworzenie|implementacja|projektowanie|utrzymanie|budowa|w(?:d|y)ro(?:z|ż)enie)\s+(?:backendu|us(?:l|ł)ug backendowych|api|mikroserwis(?:o|ó)w)/i;
+const BACKEND_COLLABORATION_CUE = /\b(collaborat(?:e|ion)|cooperat(?:e|ion)|work(?:s|ing)?\s+with|coordinate|support|integrat(?:e|ion)\s+with|consum(?:e|ing)|communicat(?:e|ion)\s+with)\b|wsp(?:o|ó)(?:l|ł)prac(?:a|y|uj)|integracj(?:a|e|i)\s+(?:z|ze)|komunikacj(?:a|e)\s+z|wsp(?:o|ó)(?:l|ł)prac(?:a|y|uj)\s+z/i;
+const LIGHT_BACKEND_CUE = /\b(light|minor|small|limited|basic|fundamental|fundamentals?|familiarity|exposure)\b|podstaw(?:owa|y)|niewielk/i;
+const API_INTEGRATION_CUE = /(?:rest\s+)?api\s+integration|integracj(?:a|e|i)\s+(?:z|ze)?\s*rest\s*api/i;
 const FLUENT_LANG_CUE = /\b(c1|c2|fluent|fluency|native|mandatory|required|must|j\.\s*niemieckim|niemieckim|german-speaking|deutschkenntnisse)\b/i;
 
 function occurrences(text, patterns) {
@@ -33,17 +39,33 @@ function occurrences(text, patterns) {
   }, 0);
 }
 
+function clauseEntries(text) {
+  let optionalSection = false;
+  return String(text || "").split(/\r?\n/).flatMap((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return [];
+    const headingText = trimmed.replace(/^[#>*\-\s]+/, "").replace(/[:：].*$/, "").trim();
+    if (SECTION_HEADING.test(headingText) || OPTIONAL_SECTION_HEADING.test(headingText)) {
+      optionalSection = OPTIONAL_SECTION_HEADING.test(headingText);
+      const inline = trimmed.replace(/^[#>*\-\s]+/, "").replace(/^[^:：]+[:：]/, "").trim();
+      if (!inline || OPTIONAL_SECTION_HEADING.test(headingText)) return [];
+    }
+    return trimmed.split(/(?<=[.!?;])\s+/).filter(Boolean).map((clause) => ({ text: clause, optionalSection }));
+  });
+}
+
 function matchingClauses(text, patterns) {
-  return String(text || "")
-    .split(/\n|(?<=[.!?;])\s+/)
-    .filter((clause) => patterns.some((pattern) => pattern.test(clause)));
+  return clauseEntries(text)
+    .filter(({ text: clause }) => patterns.some((pattern) => pattern.test(clause)))
+    .map(({ text: clause }) => clause);
 }
 
 function requirementSignal(title, description, patterns) {
   const titleHit = patterns.some((pattern) => pattern.test(title));
-  const clauses = matchingClauses(description, patterns);
-  const mandatory = titleHit || clauses.some((clause) => MANDATORY_CUE.test(clause) && !OPTIONAL_CUE.test(clause));
-  const optionalOnly = !titleHit && clauses.length > 0 && clauses.every((clause) => OPTIONAL_CUE.test(clause));
+  const entries = clauseEntries(description).filter(({ text: clause }) => patterns.some((pattern) => pattern.test(clause)));
+  const clauses = entries.map(({ text: clause }) => clause);
+  const mandatory = titleHit || entries.some(({ text: clause, optionalSection }) => !optionalSection && MANDATORY_CUE.test(clause) && !OPTIONAL_CUE.test(clause));
+  const optionalOnly = !titleHit && entries.length > 0 && entries.every(({ text: clause, optionalSection }) => optionalSection || OPTIONAL_CUE.test(clause) || BACKEND_COLLABORATION_CUE.test(clause));
   return { present: titleHit || clauses.length > 0, mandatory, optionalOnly, clauses };
 }
 
@@ -147,8 +169,11 @@ export function analyzeJobMatch(job, fullDescription = "") {
   const titleBits = stackBits(titleMasked);
   const frontendCount = occurrences(allMasked, [
     /\bfront[ -]?end\b/i, /\bweb application/i, /\buser interface/i, /\bui\b/i,
-    /\bcomponent(?:s| library| system)?\b/i, /\bdesign system\b/i,
-    /\baccessibilit/i, /\bcore web vitals\b/i, /\bseo\b/i,
+    /\bcomponent(?:s| library| system)?\b/i, /\bdesign system\b/i, /\bdesign systems?\b/i,
+    /\baccessibilit|wcag|wai-aria/i, /\bcore web vitals\b/i, /\bseo\b/i,
+    /\bunit(?:y)?\s*(?:\/|and|&)\s*integration testing\b/i, /\bfrontend testing\b/i,
+    /\b(browser|chrome devtools|performance|code quality|rest api integration)\b/i,
+    /\b(aplikacj(?:e|i) frontendow|rozw(?:o|ó)j frontendu|rozwi(?:ą|a)zania frontendowe|interfejsy|dost(?:e|ę)pno(?:s|ś)(?:c|ć)|wydajno(?:s|ś)(?:c|ć) aplikacji internetowych|tworzenie komponent(?:o|ó)w|testy frontendowe|integracja rest api|jako(?:s|ś)(?:c|ć) kodu frontendowego)\b/i,
     /\breact(?:\.js|js)?\b/i, /\bnext\.?(?:js)?\b/i, /\btypescript\b/i
   ]);
 
@@ -157,9 +182,24 @@ export function analyzeJobMatch(job, fullDescription = "") {
     ...requirementSignal(title, description, stack.patterns),
     count: occurrences(allText, stack.patterns)
   })).filter((stack) => stack.present);
-  const mandatoryBackend = backendSignals.filter((stack) => stack.mandatory && !stack.optionalOnly);
-  const backendCount = backendSignals.reduce((sum, stack) => sum + stack.count, 0)
-    + occurrences(allText, [/\bback[ -]?end\b/i, /\bmicroservices?\b/i, /\bserver[ -]?side\b/i, /\bdistributed systems?\b/i]);
+  const backendTechPattern = /\b(?:java|spring|kotlin|\.net|c#|python|django|fastapi|golang|go|ruby|rails|php|laravel|symfony|back[ -]?end|microservices?|server[ -]?side|apis?)\b/i;
+  const backendEntries = clauseEntries(description).filter(({ text: clause }) => backendTechPattern.test(clause));
+  const backendCollaborationSignals = backendEntries
+    .filter(({ text: clause }) => BACKEND_COLLABORATION_CUE.test(clause))
+    .map(({ text: clause }) => clause);
+  const backendOwnershipSignals = backendEntries
+    .filter(({ text: clause, optionalSection }) => !optionalSection && BACKEND_OWNERSHIP_CUE.test(clause) && !BACKEND_COLLABORATION_CUE.test(clause) && !LIGHT_BACKEND_CUE.test(clause) && !API_INTEGRATION_CUE.test(clause))
+    .map(({ text: clause }) => clause);
+  const backendMandatoryDevelopmentCount = backendOwnershipSignals.length;
+  const backendOptionalCount = backendEntries.filter(({ text: clause, optionalSection }) => optionalSection || OPTIONAL_CUE.test(clause)).length;
+  const backendCollaborationCount = backendCollaborationSignals.length;
+  const mandatoryBackend = backendSignals.filter((stack) =>
+    stack.mandatory && !stack.optionalOnly
+    && backendOwnershipSignals.some((clause) => stack.patterns.some((pattern) => pattern.test(clause)))
+  );
+  // Weighted signals: optional technologies and collaboration are context, not
+  // ownership. Raw PHP/Go/backend mention counts never drive dominance.
+  const backendCount = backendMandatoryDevelopmentCount * 3 + backendOptionalCount * 0.15;
 
   const ecommerce = detectEcommerce(title, description);
   const leadership = /\b(lead|technical lead|tech lead|team lead|staff|principal|architect)\b/i.test(title);
@@ -172,17 +212,18 @@ export function analyzeJobMatch(job, fullDescription = "") {
   const fullstack = /\bfull[ -]?stack\b/i.test(allText);
   const explicitFrontendHeavy = /\b(frontend[ -](?:heavy|focused|leaning)|front[ -]?end focus|primarily front[ -]?end|mostly front[ -]?end|frontend-dominant)\b/i.test(allText);
   const pureBackendTitle = /\bbackend|back-end\b/i.test(title) && !/\bfront[ -]?end|react|next|full[ -]?stack\b/i.test(titleMasked);
-  const backendOwnership = matchingClauses(description, [/\bmicroservices?\b/i, /\bback[ -]?end\b/i])
-    .some((clause) => RESPONSIBILITY_CUE.test(clause) && !OPTIONAL_CUE.test(clause));
+  const backendOwnership = backendMandatoryDevelopmentCount > 0;
   const { backendPct, frontendPct } = parseResponsibilityPercents(allText);
   const percentBackendDominant = backendPct >= 50 && (frontendPct === 0 || frontendPct <= backendPct);
   const percentFrontendDominant = frontendPct >= 60 && frontendPct > backendPct;
 
   const mobileCount = occurrences(allText, MOBILE_CORE);
+  const frontendOwnershipScore = frontendCount + (frontendTitle ? 6 : 0) + (titleBits.react + titleBits.next + titleBits.ts) * 2;
+  const backendDominanceScore = backendMandatoryDevelopmentCount * 3 + (percentBackendDominant ? 5 : 0);
   const frontendDominance = explicitFrontendHeavy || percentFrontendDominant
-    || frontendCount >= Math.max(3, backendCount * 1.5);
+    || frontendOwnershipScore >= Math.max(7, backendDominanceScore * 1.5);
   const backendDominance = pureBackendTitle || backendOwnership || percentBackendDominant
-    || backendCount >= Math.max(3, frontendCount * 1.25);
+    || (backendMandatoryDevelopmentCount >= 2 && backendDominanceScore >= frontendOwnershipScore * 1.25);
   const mobileInTitle = MOBILE_CORE.some((pattern) => pattern.test(title)) || /\bmobile\b/i.test(title);
   const mobileDominance = nativeSignal.mandatory || mobileInTitle || mobileCount >= Math.max(2, bits.react + bits.next);
 
@@ -323,6 +364,24 @@ export function analyzeJobMatch(job, fullDescription = "") {
   ]);
   const fitScore = Math.round((1 + compatibilityPercent / 25) * 10) / 10;
   const reasonDisplay = formatMatchReason(classification, reason, compatibilityPercent);
+  const primaryDomain = ecommerce.length
+    ? ecommerce[0]
+    : mobileDominance ? "MOBILE" : webCore ? (fullstack ? "FULLSTACK_TYPESCRIPT" : "FRONTEND_WEB")
+      : backendDominance ? "BACKEND" : "GENERAL";
+  const skillSignals = [
+    ["React", /\breact(?:\.js|js)?\b/i], ["Next.js", /\bnext\.?js?\b/i], ["TypeScript", /\btypescript\b/i],
+    ["WCAG / accessibility", /wcag|wai-aria|accessibilit|dost(?:e|ę)pno(?:s|ś)(?:c|ć)/i],
+    ["Core Web Vitals", /core web vitals/i], ["REST API", /rest\s+api|api integration/i],
+    ["Design Systems", /design system|component library/i], ["Playwright", /playwright/i],
+    ["PHP", /\bphp\b/i], ["Go", /\b(?:golang|go)\b/i], ["Docker", /\bdocker\b/i],
+    ["CI/CD", /\bci\/cd\b|continuous integration/i], ["Figma / UX", /\bfigma\b|ux\/?ui/i],
+    ["SEO", /\bseo\b/i], ["AI-assisted development", /ai-assisted|ai assisted|llm|coding assistant|ai agents?/i]
+  ];
+  const skillState = (pattern) => requirementSignal(title, description, [pattern]);
+  const mandatorySkills = unique(skillSignals.filter(([, pattern]) => {
+    const state = skillState(pattern); return state.mandatory && !state.optionalOnly;
+  }).map(([name]) => name));
+  const optionalSkills = unique(skillSignals.filter(([, pattern]) => skillState(pattern).optionalOnly).map(([name]) => name));
 
   return {
     fitScore: Math.min(5, fitScore),
@@ -332,6 +391,17 @@ export function analyzeJobMatch(job, fullDescription = "") {
     recommendation,
     reason,
     reasonDisplay,
+    primaryRole: title,
+    primaryDomain,
+    mandatorySkills,
+    optionalSkills,
+    frontendOwnershipSignals: unique(clauseEntries(description)
+      .filter(({ text: clause }) => /front[ -]?end|react|next|typescript|web application|component|wcag|core web vitals|design system|interfejs|dost(?:e|ę)pno/i.test(clause))
+      .map(({ text: clause }) => clause)).slice(0, 20),
+    backendOwnershipSignals,
+    backendCollaborationSignals,
+    frontendDominanceScore: frontendOwnershipScore,
+    backendDominanceScore,
     strengths: unique(strengths),
     gaps: unique(gaps),
     missingMandatorySkills: unique(missingMandatorySkills),
@@ -346,11 +416,14 @@ export function analyzeJobMatch(job, fullDescription = "") {
       reactNativeOrMobileCount: mobileCount,
       frontendCount,
       backendCount,
+      backendMandatoryDevelopmentCount,
+      backendOptionalCount,
+      backendCollaborationCount: backendCollaborationSignals.length,
       backendPct,
       frontendPct,
       mandatoryBackend: mandatoryBackend.map((stack) => stack.id),
       mandatoryLanguages: languageSignals.map((signal) => signal.name),
-      requiredYears: unique([...allText.matchAll(/\b(\d{1,2})\+?\s+years?(?:\s+of)?\s+(?:commercial |professional |relevant )?experience\b/gi)].map((match) => Number(match[1]))).sort((a, b) => b - a)
+      requiredYears: unique([...allText.matchAll(/\b(?:minimum|min\.?|at\s+least)?\s*(\d{1,2})\+?\s+years?(?:\s+of)?\s+(?:commercial |professional |relevant )?experience\b/gi)].map((match) => Number(match[1]))).sort((a, b) => b - a)
     },
     evaluatedFrom: hasFullJd ? "full-jd" : "pipeline-summary",
     evaluatedAt: new Date().toISOString()

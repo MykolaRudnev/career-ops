@@ -12,10 +12,14 @@ import {
 import { buildSimpleTailorResult } from "./cvFromMaster.mjs";
 import { DomainValidationError } from "./cvDomainRouting.mjs";
 import { analyzeJobMatch } from "./jobMatch.mjs";
+import { operationManager, type OperationRecord } from "./operations.ts";
+import { OperationCancelledError, ProcessTimeoutError } from "./process.ts";
+import { generateCoverLetter as generateCoverArtifact } from "./coverLetter.ts";
 
 const JOB_MATCH_VERSION = 3;
 
-function findLocalJobDescription(job: { url?: string; company?: string; title?: string }): string {
+function findLocalJobDescription(job: { url?: string; company?: string; title?: string; description?: string }): string {
+  if (String(job.description || "").trim().length >= 40) return String(job.description).trim();
   const outputsDir = path.join(WORKSPACE_ROOT, "outputs");
   if (!fs.existsSync(outputsDir)) return "";
   const needleUrl = String(job.url || "").trim();
@@ -47,7 +51,7 @@ function findLocalJobDescription(job: { url?: string; company?: string; title?: 
 export interface ActivityEntry {
   id: string;
   name: string;
-  status: "running" | "success" | "failed";
+  status: "running" | "success" | "failed" | "cancelled";
   startedAt: string;
   completedAt?: string;
   durationMs?: number;
@@ -106,9 +110,9 @@ class CareerOpsManager {
     };
   }
 
-  private recordOpStart(name: string, summary: string): ActivityEntry {
+  private recordOpStart(name: string, summary: string, id?: string): ActivityEntry {
     const op: ActivityEntry = {
-      id: `op-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: id || `op-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       name,
       status: "running",
       startedAt: new Date().toISOString(),
@@ -120,7 +124,7 @@ class CareerOpsManager {
     return op;
   }
 
-  private recordOpEnd(op: ActivityEntry, status: "success" | "failed", stdout: string, stderr: string, summary?: string) {
+  private recordOpEnd(op: ActivityEntry, status: "success" | "failed" | "cancelled", stdout: string, stderr: string, summary?: string) {
     op.status = status;
     op.completedAt = new Date().toISOString();
     op.durationMs = new Date(op.completedAt).getTime() - new Date(op.startedAt).getTime();
@@ -217,6 +221,66 @@ class CareerOpsManager {
     return result;
   }
 
+  public startTailoredCv(job: PipelineJob, options: { providerId?: string; model?: string } = {}): OperationRecord {
+    if (this.currentOp) throw new Error(`Another operation is currently running: ${this.currentOp.name}`);
+    const operation = operationManager.create(job.id);
+    operationManager.run(operation.operationId, async ({ signal, updateStage }) => {
+      const result = await this.generateTailoredCv(job, options, { operationId: operation.operationId, signal, updateStage });
+      if (!result.success) throw new Error(result.error || "CV generation failed");
+      return result;
+    });
+    return operation;
+  }
+
+  public startCoverLetter(job: PipelineJob, options: { providerId?: string; model?: string } = {}): OperationRecord {
+    if (this.currentOp) throw new Error(`Another operation is currently running: ${this.currentOp.name}`);
+    const operation = operationManager.create(job.id, "COVER_LETTER");
+    operationManager.run(operation.operationId, async ({ signal, updateStage }) => {
+      const result = await this.generateCoverLetter(job, options, { operationId: operation.operationId, signal, updateStage });
+      if (!result.success) throw new Error(result.error || "Cover Letter generation failed");
+      return result;
+    });
+    return operation;
+  }
+
+  public async generateCoverLetter(
+    job: PipelineJob,
+    options: { providerId?: string; model?: string },
+    operation: { operationId: string; signal: AbortSignal; updateStage: (stage: string) => void }
+  ): Promise<any> {
+    const op = this.recordOpStart("Generate Cover Letter", `Preparing an on-demand Cover Letter for ${job.company} (${job.title})`, operation.operationId);
+    const stage = (value: string) => {
+      op.summary = value;
+      operation.updateStage(value);
+    };
+    try {
+      stage("Loading Job Description");
+      const fallback = `${job.title} at ${job.company}. Location: ${job.location || "not specified"}. ${job.extra || ""}`;
+      const localJd = findLocalJobDescription(job);
+      const { text: fullJd } = localJd
+        ? { text: localJd }
+        : await getFullJobDescription(job.url, fallback, operation.signal);
+      stage("Loading Candidate Context");
+      const evaluation = this.getEvaluationForDisplay(job);
+      const artifact = await generateCoverArtifact(job, fullJd, evaluation, {
+        providerId: options.providerId,
+        model: options.model,
+        signal: operation.signal,
+        operationId: operation.operationId,
+        onProgress: stage
+      });
+      this.recordOpEnd(op, "success", artifact.textPath, "", `Cover Letter ready for ${job.company}`);
+      return { success: true, artifact };
+    } catch (error: any) {
+      if (error instanceof OperationCancelledError || operation.signal.aborted) {
+        this.recordOpEnd(op, "cancelled", "", "", "Cover Letter generation cancelled");
+        throw new OperationCancelledError();
+      }
+      this.recordOpEnd(op, "failed", "", error?.message || String(error), `Cover Letter generation failed: ${error?.message || error}`);
+      throw error;
+    }
+  }
+
   public async rerankJobs(jobs: Array<{ url: string; company: string; title: string; location: string; extra?: string }>, fullJdLimit = 60) {
     const preliminary = jobs.map((job) => {
       const localJd = findLocalJobDescription(job);
@@ -249,7 +313,7 @@ class CareerOpsManager {
   /**
    * Generate tailored CV using Career-Ops standard pipeline
    */
-  public async generateTailoredCv(job: PipelineJob, options: { providerId?: string; model?: string } = {}): Promise<{
+  public async generateTailoredCv(job: PipelineJob, options?: { providerId?: string; model?: string }): Promise<{
     success: boolean;
     htmlPath: string;
     pdfPath: string;
@@ -265,56 +329,75 @@ class CareerOpsManager {
     tailoringDiff?: TailoringDiff;
     jobDir?: string;
     error?: string;
-  }> {
-    if (this.currentOp) {
-      throw new Error(`Another operation is currently running: ${this.currentOp.name}`);
-    }
+  }>;
+  public async generateTailoredCv(
+    job: PipelineJob,
+    options: { providerId?: string; model?: string },
+    operation: { operationId: string; signal: AbortSignal; updateStage: (stage: string) => void }
+  ): Promise<any>;
+  public async generateTailoredCv(
+    job: PipelineJob,
+    options: { providerId?: string; model?: string } = {},
+    operation?: { operationId: string; signal: AbortSignal; updateStage: (stage: string) => void }
+  ): Promise<any> {
+    if (!operation && this.currentOp) throw new Error(`Another operation is currently running: ${this.currentOp.name}`);
 
-    const op = this.recordOpStart("Generate Tailored CV", `Starting AI tailoring for ${job.company} (${job.title})`);
+    const op = this.recordOpStart("Generate Tailored CV", `Starting AI tailoring for ${job.company} (${job.title})`, operation?.operationId);
+    const stage = (value: string) => {
+      op.summary = value;
+      operation?.updateStage(value.replace(/^\[\d+\/\d+\]\s*/, ""));
+    };
     const providerEvents: string[] = [];
     let fallbackReason = "";
 
     try {
-      op.summary = `[1/5] Loading Full Job Description for ${job.company}...`;
+      stage("[1/5] Loading Job Description");
       const fallbackText = `${job.title} at ${job.company}. Location: ${job.location || "Remote"}. ${job.extra || ""}`;
-      const { text: fullJd, source: jdSource } = await getFullJobDescription(job.url, fallbackText);
+      const localJd = findLocalJobDescription(job);
+      const { text: fullJd, source: jdSource } = localJd
+        ? { text: localJd, source: "manual/local" as const }
+        : await getFullJobDescription(job.url, fallbackText, operation?.signal);
 
-      op.summary = `[2/5] Loading Candidate Ground Truth & Projects...`;
+      stage("[2/5] Loading Candidate Knowledge");
 
       const selectedProvider = options.providerId || "configured provider";
       let aiResult: Awaited<ReturnType<typeof runAiTailoring>> | null = null;
       try {
-        op.summary = `[3/5] AI Tailoring with ${selectedProvider}...`;
+        stage("[3/5] Classifying Domain");
+        stage(`[3/5] AI Tailoring with ${selectedProvider}`);
         aiResult = await runAiTailoring(
           job,
           fullJd,
           options,
-          (stage) => {
-            op.summary = `[3/5] ${stage}`;
+          (progress) => {
+            stage(`[3/5] ${progress}`);
           },
           (event) => {
             const line = `[AI ${event.type.toUpperCase()}] ${event.message}`;
             providerEvents.push(line);
             op.stdout = providerEvents.join("\n");
-          }
+          },
+          operation?.signal
         );
       } catch (aiErr: any) {
+        if (aiErr instanceof OperationCancelledError || aiErr instanceof ProcessTimeoutError || operation?.signal.aborted) throw aiErr;
         if (aiErr instanceof DomainValidationError || aiErr?.name === "DomainValidationError") {
           throw aiErr;
         }
         fallbackReason = aiErr.message || String(aiErr);
         providerEvents.push(`[FALLBACK] AI tailoring failed: ${fallbackReason}`);
-        op.summary = `[3/5] AI failed — generating a simple CV from cv.md...`;
+        stage("[3/5] AI failed — generating a simple CV from cv.md");
       }
 
       let renderResult: Awaited<ReturnType<typeof renderAndValidateTailoredCv>>;
       if (aiResult) {
         try {
-          op.summary = `[4/5] Running Fact Validation (verify-cv-facts.mjs)...`;
-          renderResult = await renderAndValidateTailoredCv(job, fullJd, aiResult, (stage) => {
-            op.summary = stage;
-          });
+          stage("[4/5] Fact Validation");
+          renderResult = await renderAndValidateTailoredCv(job, fullJd, aiResult, (progress) => {
+            stage(progress);
+          }, { operationId: operation?.operationId, signal: operation?.signal });
         } catch (renderErr: any) {
+          if (renderErr instanceof OperationCancelledError || renderErr instanceof ProcessTimeoutError || operation?.signal.aborted) throw renderErr;
           if (renderErr instanceof DomainValidationError || renderErr?.name === "DomainValidationError") {
             throw renderErr;
           }
@@ -325,11 +408,11 @@ class CareerOpsManager {
       }
 
       if (!aiResult) {
-        op.summary = `[4/5] Rendering simple CV from cv.md...`;
+        stage("[4/5] Building HTML and PDF from cv.md");
         const simple = buildSimpleTailorResult(job);
-        renderResult = await renderAndValidateTailoredCv(job, fullJd, simple, (stage) => {
-          op.summary = stage;
-        });
+        renderResult = await renderAndValidateTailoredCv(job, fullJd, simple, (progress) => {
+          stage(progress);
+        }, { operationId: operation?.operationId, signal: operation?.signal });
       }
 
       const tailoredWithAi = !fallbackReason;
@@ -356,6 +439,14 @@ class CareerOpsManager {
         jobDir: renderResult!.jobDir
       };
     } catch (err: any) {
+      if (err instanceof OperationCancelledError || operation?.signal.aborted) {
+        this.recordOpEnd(op, "cancelled", "", "", "Generation cancelled");
+        throw new OperationCancelledError();
+      }
+      if (err instanceof ProcessTimeoutError) {
+        this.recordOpEnd(op, "failed", "", err.message, err.message);
+        throw err;
+      }
       const msg = err.stdout ? err.stdout.toString() : err.message;
       this.recordOpEnd(op, "failed", "", String(msg), `CV generation failed: ${err.message}`);
       return {

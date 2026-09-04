@@ -1,5 +1,5 @@
-import { execFile } from "node:child_process";
 import type { AiProviderStatus } from "./types.ts";
+import { OperationCancelledError, ProcessTimeoutError, runCancellableCommand } from "../process.ts";
 
 export class ProviderExecutionError extends Error {
   readonly status: AiProviderStatus;
@@ -34,37 +34,27 @@ export function usefulError(message: string, stderr = ""): string {
 export function execFileAsync(
   executable: string,
   args: string[],
-  options: { cwd?: string; timeoutMs?: number; maxBuffer?: number } = {}
+  options: { cwd?: string; timeoutMs?: number; maxBuffer?: number; signal?: AbortSignal } = {}
 ): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = execFile(
-      executable,
-      args,
-      {
-        cwd: options.cwd,
-        timeout: options.timeoutMs ?? 5 * 60_000,
-        maxBuffer: options.maxBuffer ?? 10 * 1024 * 1024,
-        windowsHide: true
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          const summary = usefulError(error.message, stderr);
-          reject(new ProviderExecutionError(summary, classifyProviderError(summary), stderr));
-          return;
-        }
-        resolve({ stdout, stderr });
-      }
-    );
-    // Headless CLIs may wait for an optional stdin block unless the pipe is explicitly closed.
-    child.stdin?.end();
+  return runCancellableCommand(executable, args, {
+    cwd: options.cwd,
+    timeoutMs: options.timeoutMs ?? 5 * 60_000,
+    maxBuffer: options.maxBuffer ?? 10 * 1024 * 1024,
+    signal: options.signal
+  }).catch((error: any) => {
+    if (error instanceof OperationCancelledError || error instanceof ProcessTimeoutError) throw error;
+    const stderr = String(error?.stderr || "");
+    const summary = usefulError(error?.message || String(error), stderr);
+    throw new ProviderExecutionError(summary, classifyProviderError(summary), stderr);
   });
 }
 
-export async function executableAvailable(executable: string, versionArgs = ["--version"]): Promise<boolean> {
+export async function executableAvailable(executable: string, versionArgs = ["--version"], signal?: AbortSignal): Promise<boolean> {
   try {
-    await execFileAsync(executable, versionArgs, { timeoutMs: 10_000, maxBuffer: 1024 * 1024 });
+    await execFileAsync(executable, versionArgs, { timeoutMs: 10_000, maxBuffer: 1024 * 1024, signal });
     return true;
-  } catch {
+  } catch (error) {
+    if (error instanceof OperationCancelledError) throw error;
     return false;
   }
 }

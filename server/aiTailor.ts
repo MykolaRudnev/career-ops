@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execFile, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { WORKSPACE_ROOT } from "./fileAccess.ts";
 import { aiProviderRegistry } from "./ai/providerRegistry.ts";
 import type { ProviderExecutionEvent } from "./ai/types.ts";
@@ -14,6 +14,8 @@ import {
   selectKnowledgeFiles
 } from "./cvDomainRouting.mjs";
 import { countPdfPagesFromBuffer, parseLoggedPdfPageCount } from "./pdfPageCount.mjs";
+import { OperationCancelledError, ProcessTimeoutError, runCancellableCommand } from "./process.ts";
+import { jobArtifactDir, jobArtifactSlug } from "./jobArtifacts.ts";
 
 export interface TailoringDiff {
   summary_focus: string;
@@ -81,33 +83,26 @@ export interface TailorJobMetadata {
  */
 export async function getFullJobDescription(
   jobUrl: string,
-  fallbackText: string = ""
+  fallbackText: string = "",
+  signal?: AbortSignal
 ): Promise<{ text: string; source: "browser-extract" | "fallback" }> {
   if (!jobUrl || !jobUrl.startsWith("http")) {
     return { text: fallbackText, source: "fallback" };
   }
 
-  return new Promise((resolve) => {
-    const extractScript = path.join(WORKSPACE_ROOT, "browser-extract.mjs");
-    execFile(
-      "node",
+  const extractScript = process.env.CAREER_OPS_BROWSER_EXTRACT || path.join(WORKSPACE_ROOT, "browser-extract.mjs");
+  try {
+    const { stdout } = await runCancellableCommand(
+      process.execPath,
       [extractScript, jobUrl, "--max-chars", "12000", "--timeout", "15000"],
-      { maxBuffer: 10 * 1024 * 1024 },
-      (err, stdout) => {
-        if (!err && stdout) {
-          try {
-            const data = JSON.parse(stdout);
-            if (data.text && data.text.length > 80) {
-              return resolve({ text: data.text, source: "browser-extract" });
-            }
-          } catch {
-            // JSON parse failed, fall back
-          }
-        }
-        resolve({ text: fallbackText || `Job listing at ${jobUrl}`, source: "fallback" });
-      }
+      { maxBuffer: 10 * 1024 * 1024, timeoutMs: 25_000, signal }
     );
-  });
+    const data = JSON.parse(stdout);
+    if (data.text && data.text.length > 80) return { text: data.text, source: "browser-extract" };
+  } catch (error) {
+    if (error instanceof OperationCancelledError) throw error;
+  }
+  return { text: fallbackText || `Job listing at ${jobUrl}`, source: "fallback" };
 }
 
 /**
@@ -377,19 +372,22 @@ export async function runAiTailoring(
   fullJd: string,
   options: { providerId?: string; model?: string } = {},
   onProgress?: (stage: string) => void,
-  onProviderEvent?: (event: ProviderExecutionEvent) => void
+  onProviderEvent?: (event: ProviderExecutionEvent) => void,
+  signal?: AbortSignal
 ): Promise<AiTailorResult> {
   const prompt = buildTailoringPrompt(job, fullJd);
   const schemaPath = path.join(WORKSPACE_ROOT, "server", "ai", "tailoredCv.schema.json");
   const response = await aiProviderRegistry.execute(
-    { prompt, outputSchemaPath: schemaPath, timeoutMs: 5 * 60_000 },
+    { prompt, outputSchemaPath: schemaPath, timeoutMs: 5 * 60_000, signal },
     options,
     (event) => {
       onProgress?.(event.message);
       onProviderEvent?.(event);
     }
   );
+  onProgress?.("Validating AI Output");
   const parsed = parseTailoringJson(response.content);
+  onProgress?.("Domain Validation");
   domainConsistencyValidation(parsed, job, fullJd);
   const { result } = enforceDomainConsistency(parsed, job, fullJd);
   result._durationMs = response.durationMs;
@@ -459,30 +457,59 @@ function parsePdfPageCount(stdout: string, pdfPath: string): number {
   return countPdfPagesFromBuffer(fs.readFileSync(pdfPath));
 }
 
-function renderHtmlAndPdf(tmpJsonPath: string, htmlPath: string, pdfPath: string, onProgress?: (stage: string) => void): { pageCount: number } {
+export function publishGenerationArtifacts(
+  files: Array<{ staged: string; destination: string }>,
+  operationId: string,
+  signal?: AbortSignal
+) {
+  if (signal?.aborted) throw new OperationCancelledError();
+  for (const { staged, destination } of files) {
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    const incoming = `${destination}.${operationId}.incoming`;
+    fs.copyFileSync(staged, incoming);
+    if (signal?.aborted) {
+      fs.rmSync(incoming, { force: true });
+      throw new OperationCancelledError();
+    }
+    fs.renameSync(incoming, destination);
+  }
+}
+
+async function renderHtmlAndPdf(
+  tmpJsonPath: string,
+  htmlPath: string,
+  pdfPath: string,
+  onProgress?: (stage: string) => void,
+  signal?: AbortSignal
+): Promise<{ pageCount: number }> {
   fs.mkdirSync(path.dirname(htmlPath), { recursive: true });
   fs.mkdirSync(path.dirname(pdfPath), { recursive: true });
+  if (onProgress) onProgress("Building HTML");
   try {
-    execFileSync("node", ["build-cv-html.mjs", tmpJsonPath, htmlPath], { cwd: WORKSPACE_ROOT, stdio: "pipe" });
+    await runCancellableCommand(process.execPath, ["build-cv-html.mjs", tmpJsonPath, htmlPath], { cwd: WORKSPACE_ROOT, signal, timeoutMs: 60_000 });
   } catch (buildErr: any) {
+    if (buildErr instanceof OperationCancelledError || buildErr instanceof ProcessTimeoutError) throw buildErr;
     throw new Error(`Failed to build HTML CV: ${commandError(buildErr)}`);
   }
   const sourceArgs = factSourceArgs();
-  if (onProgress) onProgress("Running Fact Validation (verify-cv-facts.mjs)...");
+  if (onProgress) onProgress("Fact Validation");
   try {
-    execFileSync("node", ["verify-cv-facts.mjs", htmlPath, ...sourceArgs], { cwd: WORKSPACE_ROOT, stdio: "pipe" });
+    await runCancellableCommand(process.execPath, ["verify-cv-facts.mjs", htmlPath, ...sourceArgs], { cwd: WORKSPACE_ROOT, signal, timeoutMs: 60_000 });
   } catch (factErr: any) {
+    if (factErr instanceof OperationCancelledError || factErr instanceof ProcessTimeoutError) throw factErr;
     throw new Error(`Fact Validation Failed: ${commandError(factErr)}`);
   }
-  if (onProgress) onProgress("Compiling ATS-Compliant PDF...");
+  if (onProgress) onProgress("Generating PDF");
   try {
     const pdfSourceFlags = sourceArgs.filter((_, index) => index % 2 === 1).map((file) => `--source=${file}`);
-    const pdfOut = execFileSync("node", ["generate-pdf.mjs", htmlPath, pdfPath, "--format=a4", ...pdfSourceFlags], {
+    const pdfOut = await runCancellableCommand(process.execPath, ["generate-pdf.mjs", htmlPath, pdfPath, "--format=a4", ...pdfSourceFlags], {
       cwd: WORKSPACE_ROOT,
-      stdio: "pipe"
+      signal,
+      timeoutMs: 120_000
     });
-    return { pageCount: parsePdfPageCount(pdfOut.toString(), pdfPath) };
+    return { pageCount: parsePdfPageCount(pdfOut.stdout, pdfPath) };
   } catch (pdfErr: any) {
+    if (pdfErr instanceof OperationCancelledError || pdfErr instanceof ProcessTimeoutError) throw pdfErr;
     throw new Error(`Failed to render PDF: ${commandError(pdfErr)}`);
   }
 }
@@ -494,7 +521,8 @@ export async function renderAndValidateTailoredCv(
   job: { company: string; title: string; url: string; location?: string; id: string },
   fullJd: string,
   aiResult: AiTailorResult,
-  onProgress?: (stage: string) => void
+  onProgress?: (stage: string) => void,
+  options: { operationId?: string; signal?: AbortSignal } = {}
 ): Promise<{
   jobDir: string;
   metadata: TailorJobMetadata;
@@ -502,9 +530,7 @@ export async function renderAndValidateTailoredCv(
   pdfPath: string;
   markdownPath: string;
 }> {
-  const compSlug = job.company.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  const titleSlug = job.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  const baseSlug = `${compSlug}-${titleSlug}`.substring(0, 50);
+  const baseSlug = jobArtifactSlug(job.company, job.title);
   const candidate = loadDashboardProfile();
   const parsedMaster = loadParsedMasterCv();
   const candidateSlug = candidateFileSlug(candidate.name);
@@ -517,15 +543,23 @@ export async function renderAndValidateTailoredCv(
   const outputsBase = path.join(WORKSPACE_ROOT, "outputs");
   if (!fs.existsSync(outputsBase)) fs.mkdirSync(outputsBase, { recursive: true });
 
-  const jobDir = path.join(outputsBase, `${baseSlug}`);
+  const jobDir = jobArtifactDir(job);
   if (!fs.existsSync(jobDir)) fs.mkdirSync(jobDir, { recursive: true });
+  const operationId = (options.operationId || `op-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "-");
+  const stagingDir = path.join(jobDir, ".tmp", operationId);
+  fs.mkdirSync(stagingDir, { recursive: true });
 
-  // Save Job Description
-  fs.writeFileSync(path.join(jobDir, "job-description.md"), fullJd, "utf8");
+  const assertNotCancelled = () => {
+    if (options.signal?.aborted) throw new OperationCancelledError();
+  };
+
+  // All generated artifacts stay operation-scoped until every validator and
+  // renderer succeeds, preserving the previous valid CV during regeneration.
+  fs.writeFileSync(path.join(stagingDir, "job-description.md"), fullJd, "utf8");
 
   // Save Tailoring Diff
   fs.writeFileSync(
-    path.join(jobDir, "tailoring-diff.json"),
+    path.join(stagingDir, "tailoring-diff.json"),
     JSON.stringify(aiResult.tailoring_diff, null, 2),
     "utf8"
   );
@@ -556,23 +590,25 @@ export async function renderAndValidateTailoredCv(
     interests: parsedMaster.languages.length ? [parsedMaster.languages.join(" · ")] : []
   };
 
-  const markdownPath = path.join(jobDir, "tailored-cv.md");
+  const markdownPath = path.join(stagingDir, "tailored-cv.md");
   fs.writeFileSync(markdownPath, writeMarkdownCv(payload, candidate.name), "utf8");
 
-  const tmpJsonPath = `/tmp/cv-${baseSlug}.json`;
+  const tmpJsonPath = path.join(stagingDir, "cv-payload.json");
   fs.writeFileSync(tmpJsonPath, JSON.stringify(payload, null, 2), "utf8");
 
-  const localHtmlPath = path.join(jobDir, "tailored-cv.html");
-  const localPdfPath = path.join(jobDir, "tailored-cv.pdf");
+  const localHtmlPath = path.join(stagingDir, "tailored-cv.html");
+  const localPdfPath = path.join(stagingDir, "tailored-cv.pdf");
   const outputHtmlPath = path.join(WORKSPACE_ROOT, "output", `cv-${candidateSlug}-${baseSlug}.html`);
   const outputPdfPath = path.join(WORKSPACE_ROOT, "output", `cv-${candidateSlug}-${baseSlug}.pdf`);
 
-  const { pageCount } = renderHtmlAndPdf(tmpJsonPath, localHtmlPath, localPdfPath, onProgress);
-  fs.copyFileSync(localHtmlPath, outputHtmlPath);
-  fs.copyFileSync(localPdfPath, outputPdfPath);
+  let pageCount = 0;
+  let metadata!: TailorJobMetadata;
+  try {
+    ({ pageCount } = await renderHtmlAndPdf(tmpJsonPath, localHtmlPath, localPdfPath, onProgress, options.signal));
+    assertNotCancelled();
 
   const llmTailoringExecuted = aiResult._fallbackUsed !== true && Boolean(aiResult._providerId);
-  const metadata: TailorJobMetadata = {
+  metadata = {
     jobId: job.id,
     company: job.company,
     role: job.title,
@@ -596,14 +632,26 @@ export async function renderAndValidateTailoredCv(
     pdfPath: outputPdfPath
   };
 
-  fs.writeFileSync(path.join(jobDir, "metadata.json"), JSON.stringify(metadata, null, 2), "utf8");
+    fs.writeFileSync(path.join(stagingDir, "metadata.json"), JSON.stringify(metadata, null, 2), "utf8");
+    if (onProgress) onProgress("Saving Artifacts");
+    assertNotCancelled();
+
+    const files = ["job-description.md", "tailored-cv.md", "tailored-cv.html", "tailored-cv.pdf", "tailoring-diff.json", "metadata.json"]
+      .map((name) => ({ staged: path.join(stagingDir, name), destination: path.join(jobDir, name) }));
+    files.push({ staged: localHtmlPath, destination: outputHtmlPath }, { staged: localPdfPath, destination: outputPdfPath });
+    publishGenerationArtifacts(files, operationId, options.signal);
+  } finally {
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+    const tmpRoot = path.join(jobDir, ".tmp");
+    try { if (fs.existsSync(tmpRoot) && fs.readdirSync(tmpRoot).length === 0) fs.rmdirSync(tmpRoot); } catch { /* best effort */ }
+  }
 
   return {
     jobDir,
     metadata,
     htmlPath: outputHtmlPath,
     pdfPath: outputPdfPath,
-    markdownPath
+    markdownPath: path.join(jobDir, "tailored-cv.md")
   };
 }
 
@@ -618,6 +666,11 @@ export function renderMasterCv(onProgress?: (stage: string) => void): {
   fs.mkdirSync(path.join(WORKSPACE_ROOT, "output"), { recursive: true });
   fs.writeFileSync(tmpJsonPath, JSON.stringify(payload, null, 2), "utf8");
   if (onProgress) onProgress("Rendering ATS PDF from cv.md...");
-  renderHtmlAndPdf(tmpJsonPath, htmlPath, pdfPath, onProgress);
+  // Master CV remains the synchronous, non-AI path. Tailored CV generation
+  // uses the cancellable async renderer above.
+  execFileSync("node", ["build-cv-html.mjs", tmpJsonPath, htmlPath], { cwd: WORKSPACE_ROOT, stdio: "pipe" });
+  execFileSync("node", ["verify-cv-facts.mjs", htmlPath, ...factSourceArgs()], { cwd: WORKSPACE_ROOT, stdio: "pipe" });
+  const pdfSourceFlags = factSourceArgs().filter((_, index) => index % 2 === 1).map((file) => `--source=${file}`);
+  execFileSync("node", ["generate-pdf.mjs", htmlPath, pdfPath, "--format=a4", ...pdfSourceFlags], { cwd: WORKSPACE_ROOT, stdio: "pipe" });
   return { htmlPath, pdfPath, filename: path.basename(pdfPath) };
 }

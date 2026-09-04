@@ -19,7 +19,7 @@ export class CodexProvider implements AiProvider {
   }
 
   async execute(request: AiRequest): Promise<AiResponse> {
-    if (!(await this.isAvailable())) {
+    if (!(await executableAvailable("codex", ["--version"], request.signal))) {
       throw new ProviderExecutionError("Codex CLI is not installed (expected executable: codex)", "not_installed");
     }
 
@@ -39,7 +39,7 @@ export class CodexProvider implements AiProvider {
 
     const start = Date.now();
     try {
-      const { stdout, stderr } = await execFileAsync("codex", args, { cwd: WORKSPACE_ROOT, timeoutMs: request.timeoutMs });
+      const { stdout, stderr } = await execFileAsync("codex", args, { cwd: WORKSPACE_ROOT, timeoutMs: request.timeoutMs, signal: request.signal });
       const content = fs.existsSync(outputPath) ? fs.readFileSync(outputPath, "utf8").trim() : stdout.trim();
       if (!content) throw new ProviderExecutionError("Codex returned an empty response", "error", stderr);
       return { content, providerId: this.id, providerName: this.name, model, durationMs: Date.now() - start, stderr: stderr.trim() };

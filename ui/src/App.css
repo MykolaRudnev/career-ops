@@ -212,6 +212,9 @@
   background: #10b981;
 }
 
+.btn-danger { background: #b91c1c; color: #fff; border: 1px solid #ef4444; }
+.btn-danger:hover:not(:disabled) { background: #dc2626; }
+
 .btn-sm {
   padding: 5px 10px;
   font-size: 12px;
@@ -378,6 +381,8 @@
 .badge-remote { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
 .badge-hybrid { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
 .badge-office { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); }
+.badge-manual { background: rgba(168, 85, 247, .16); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, .42); }
+.source-added { color: var(--text-muted); font-size: 10px; margin-top: 3px; white-space: nowrap; }
 
 .badge-apply { background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid #10b981; }
 .badge-review { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; }
@@ -536,6 +541,38 @@
   overflow-y: auto;
   white-space: pre-wrap;
 }
+
+.operation-result { font-size: 12px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.operation-completed { color: #34d399; }
+.operation-cancelled { color: #fbbf24; }
+.operation-failed { color: #f87171; }
+
+.manual-board { border-top: 1px solid var(--border); padding-top: 18px; }
+.manual-board-intro { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+.manual-board-intro h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 5px; color: #fff; }
+.manual-board-intro p { margin: 0; max-width: 850px; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+.manual-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.manual-form label { display: flex; flex-direction: column; gap: 6px; color: #cbd5e1; font-size: 12px; font-weight: 600; }
+.manual-form label strong { color: #f87171; }
+.manual-form input, .manual-form select, .manual-form textarea { width: 100%; box-sizing: border-box; background: var(--bg-primary); color: #fff; border: 1px solid var(--border); border-radius: 7px; padding: 9px 11px; font: inherit; font-weight: 400; }
+.manual-form textarea { resize: vertical; min-height: 260px; line-height: 1.45; }
+.manual-form input:focus, .manual-form select:focus, .manual-form textarea:focus { outline: none; border-color: var(--accent-cyan); }
+.manual-wide { grid-column: 1 / -1; }
+.manual-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.manual-duplicate { display: grid; gap: 9px; padding: 12px; background: rgba(251, 191, 36, .08); border: 1px solid rgba(251, 191, 36, .35); border-radius: 8px; color: #fde68a; }
+.manual-duplicate > div { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+@media (max-width: 760px) { .manual-form { grid-template-columns: 1fr; } .manual-wide { grid-column: auto; } }
+
+.cover-modal-overlay { z-index: 1100; }
+.cover-modal { width: min(820px, calc(100vw - 32px)); max-height: 92vh; overflow-y: auto; }
+.cover-modal .modal-title { display: flex; align-items: center; gap: 8px; }
+.cover-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; color: var(--text-muted); font-size: 12px; }
+.cover-meta span { padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; background: rgba(148, 163, 184, .06); }
+.cover-warning { margin-bottom: 12px; padding: 10px 12px; border: 1px solid rgba(251, 191, 36, .4); border-radius: 7px; color: #fde68a; background: rgba(251, 191, 36, .08); }
+.cover-preview { min-height: 300px; padding: 18px; white-space: pre-wrap; line-height: 1.65; color: #e2e8f0; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; }
+.cover-editor { width: 100%; min-height: 340px; box-sizing: border-box; resize: vertical; padding: 16px; color: #fff; background: var(--bg-primary); border: 1px solid var(--accent-cyan); border-radius: 8px; font: inherit; line-height: 1.55; }
+.cover-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.cover-actions a { text-decoration: none; }
 
 .spinner {
   display: inline-block;

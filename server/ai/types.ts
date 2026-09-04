@@ -8,6 +8,7 @@ export interface AiRequest {
   model?: string;
   outputSchemaPath?: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface AiResponse {
