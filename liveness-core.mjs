@@ -30,9 +30,19 @@ const HARD_EXPIRED_PATTERNS = [
   /this offer has expired/i,
   /(?:job|offer|posting) (?:has )?expired/i,
   /job posting has expired/i,
+  // Bare "Job Expired" banner. nodesk.co renders its closure as a headline
+  // that innerText returns as "JOB EXPIRED"; the sentence-bounded pattern
+  // above required "this job has expired", so the banner missed and every
+  // closed posting fell through to no_apply_control -> uncertain (#4175).
+  /\bjob expired\b/i,
   /no longer accepting applications/i,
   /this (position|role|job|offer) (is )?no longer/i,
-  /this job (listing )?is closed/i,
+  // Widened from /this job (listing )?is closed/i: agentic-engineering-jobs.com
+  // writes "This role is closed" (111 of 111 uncertain postings measured in
+  // one run, #4175), and other boards use "position". The three nouns are
+  // interchangeable in JD copy; the "this ... is closed" anchor keeps
+  // descriptive prose from false-positiving.
+  /this (?:job|role|position)(?: listing)? is closed/i,
   /job (listing )?not found/i,
   /the page you are looking for doesn.t exist/i,
   /applications?\s+(?:(?:have|are|is)\s+)?closed/i,
