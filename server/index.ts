@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { readProviderHealth } from "../discovery/health.mjs";
 import express from "express";
 import cors from "cors";
 import path from "node:path";
@@ -6,6 +7,7 @@ import {
   WORKSPACE_ROOT,
   parsePipeline,
   updatePipelineStatus,
+  updateJobBid,
   getMasterCvStatus,
   getTailoredCvs,
   getLastScanInfo,
@@ -29,6 +31,10 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: "2mb" }));
+
+app.get("/api/discovery/health", (_req, res) => {
+  try { res.json(readProviderHealth()); } catch { res.status(500).json({error:"Source health unavailable"}); }
+});
 
 // AI providers are backend-owned allowlisted implementations; the browser never supplies commands.
 app.get("/api/ai/providers", async (req, res) => {
@@ -292,6 +298,20 @@ app.post("/api/pipeline/status", async (req, res) => {
       return res.status(400).json({ success: false, error: "Missing url or status" });
     }
     const updated = await updatePipelineStatus(url, status);
+    res.json({ success: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 6b. Update Job Proposed Rate / Bid
+app.post("/api/job/bid", async (req, res) => {
+  try {
+    const { url, bid, jobId } = req.body || {};
+    if (!url && !jobId) {
+      return res.status(400).json({ success: false, error: "Missing url or jobId" });
+    }
+    const updated = await updateJobBid(url || "", bid || "", jobId);
     res.json({ success: updated });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

@@ -152,6 +152,7 @@ export async function generateCoverLetter(
   const cvPath = path.join(WORKSPACE_ROOT, "cv.md");
   const cvMd = readIfExists(cvPath, 30_000);
   if (!cvMd) throw new Error("cv.md is required to generate a cover letter");
+  if (!fs.existsSync(jobArtifactDir(job))) jobArtifactDir(job, { create: true });
   const tailored = tailoredContext(job);
   const jdDir = tailored.dir;
   fs.mkdirSync(jdDir, { recursive: true });

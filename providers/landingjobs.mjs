@@ -107,7 +107,13 @@ export function normalizeLandingJob(j, fallbackCompany) {
   const location = [base, j.remote === true ? 'Remote' : ''].filter(Boolean).join(', ');
 
   /** @type {{ title: string, url: string, company: string, location: string, postedAt?: number }} */
-  const job = { title, url, company, location };
+  const job = { title, url, company, location,
+    sourceJobId:String(j.id || ''), city, country, workModel:j.remote ? 'REMOTE' : 'ONSITE',
+    description:[j.role_description, '<h3>Requirements</h3>', j.main_requirements, '<h3>Nice to have</h3>', j.nice_to_have].filter(Boolean).join('\n'),
+    salaryMin:j.gross_salary_low, salaryMax:j.gross_salary_high, salaryCurrency:j.currency_code, salaryPeriod:'year',
+    technologies:j.tags || [], employmentType:j.type, expiresAt:j.expires_at, relocationSupport:j.relocation_paid,
+    eligibleCountries:(j.locations || []).map(l=>l.country_code).filter(Boolean),
+  };
   const postedAt = toEpochMs(j.published_at) ?? toEpochMs(j.created_at);
   if (postedAt !== undefined) job.postedAt = postedAt;
   return job;
@@ -120,13 +126,17 @@ export default {
   async fetch(entry, ctx) {
     assertLandingUrl(FEED_URL);
     // redirect:'error' prevents SSRF via server-side redirects
-    const json = await ctx.fetchJson(FEED_URL, { redirect: 'error' });
-    if (!Array.isArray(json)) {
-      throw new Error(
-        `landingjobs: unexpected API response — expected a JSON array, got ${json === null ? 'null' : typeof json}`,
-      );
+    const out = [], seen = new Set();
+    for (let page = 1; page <= (entry.max_pages || 30); page++) {
+      const json = await ctx.fetchJson(`${FEED_URL}?limit=50&offset=${(page-1)*50}`, { redirect:'error' });
+      if (!Array.isArray(json)) throw new Error('landingjobs: unexpected API response');
+      let added = 0;
+      for (const item of json) {
+        const job = normalizeLandingJob(item, entry.name);
+        if (job && !seen.has(job.url)) { seen.add(job.url); out.push(job); added++; }
+      }
+      if (!added || json.length < 50) break;
     }
-    const fallbackCompany = entry?.name;
-    return json.map(j => normalizeLandingJob(j, fallbackCompany)).filter(Boolean);
+    return out;
   },
 };

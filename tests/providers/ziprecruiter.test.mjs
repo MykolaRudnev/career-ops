@@ -1,12 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import provider, {
   DEFAULT_QUERIES,
   assertZipRecruiterUrl,
   blockedReason,
   buildZipRecruiterSearchUrl,
   mergeDetailFallback,
+  mergeSearchResult,
   normalizeZipRecruiterUrl,
+  parsePostedAt,
   parseJobPostingJsonLd,
   resolveBrowserProfileConfig,
   sourceJobIdFromUrl,
@@ -95,8 +100,33 @@ test('DOM fallback preserves relevant JD text and does not promote bare Remote',
   assert.equal(job.extractionMethod, 'DOM');
   assert.equal(job.eligibility, 'UNKNOWN');
   assert.equal(job.applicationUrl, 'https://example.com/apply');
-  assert.equal(job.url, 'https://example.com/apply');
+  assert.equal(job.url, 'https://www.ziprecruiter.com/jobs/example/frontend-1');
+  assert.equal(job.sourceUrl, job.url);
   assert.match(job.sourceUrl, /ziprecruiter\.com/);
+});
+
+test('parses ZipRecruiter relative posted dates', () => {
+  const now = Date.UTC(2026, 8, 9, 12);
+  assert.equal(parsePostedAt('Today', now), now);
+  assert.equal(parsePostedAt('Yesterday', now), now - 86_400_000);
+  assert.equal(parsePostedAt('3 days ago', now), now - 3 * 86_400_000);
+});
+
+test('detail data wins while list metadata fills missing fields', () => {
+  const job = mergeSearchResult({
+    title: 'Frontend Developer', company: 'List Co', location: 'Dublin', salary: '€70k',
+    snippet: 'Short listing text', posted: '2 days ago', url: 'https://www.ziprecruiter.ie/jobs/example/frontend-1',
+  }, {
+    company: 'Detail Co', description: 'Full job description with React and TypeScript.',
+    applicationUrl: 'https://apply.example/jobs/1', extractionMethod: 'DOM',
+  }, 'Fallback Co');
+  assert.equal(job.title, 'Frontend Developer');
+  assert.equal(job.company, 'Detail Co');
+  assert.equal(job.location, 'Dublin');
+  assert.match(job.description, /Full job description/);
+  assert.equal(job.applicationUrl, 'https://apply.example/jobs/1');
+  assert.equal(job.url, 'https://www.ziprecruiter.ie/jobs/example/frontend-1');
+  assert.ok(job.postedAt);
 });
 
 test('recognizes real challenges without flagging normal security disclosures', () => {
@@ -121,4 +151,112 @@ test('normalized jobs use the shared matcher and React Native safety filter', ()
   const native = analyzeJobMatch({ title: 'React Native Developer', company: 'Acme' }, 'Build React Native apps for iOS and Android.');
   assert.match(web.matchClassification, /^(BEST|STRONG) MATCH$/);
   assert.equal(native.matchClassification, 'SKIP');
+});
+test('sequentially checkpoints jobs, continues after one detail failure, then closes pages', async () => {
+  const temp = mkdtempSync(join(tmpdir(), 'ziprecruiter-provider-test-'));
+  const cachePath = join(temp, 'cache.json');
+  const healthPath = join(temp, 'health.json');
+  const events = [];
+  const saved = [];
+  const rows = [
+    {
+      title: 'First Frontend Role', company: 'One', location: 'Dublin', posted: 'Today',
+      snippet: 'First list snippet', url: 'https://www.ziprecruiter.ie/jobs/one/frontend-1',
+    },
+    {
+      title: 'Second Frontend Role', company: 'Two', location: 'Cork', posted: '1 day ago',
+      snippet: 'Second list snippet', url: 'https://www.ziprecruiter.ie/jobs/two/frontend-2',
+    },
+  ];
+
+  const makePage = (kind) => {
+    let currentUrl = 'about:blank';
+    let closed = false;
+    let detailAttempts = 0;
+    return {
+      on() {},
+      isClosed: () => closed,
+      url: () => currentUrl,
+      title: async () => 'ZipRecruiter jobs',
+      locator: () => {
+        const locator = { innerText: async () => 'Normal public vacancy listing with enough content.', waitFor: async () => {} };
+        locator.first = () => locator;
+        return locator;
+      },
+      waitForFunction: async () => {},
+      screenshot: async () => { events.push(kind + ':screenshot'); },
+      goto: async (url) => {
+        events.push(kind + ':goto:' + url);
+        if (kind === 'detail' && detailAttempts++ === 0) throw new Error('first detail failed');
+        currentUrl = url;
+      },
+      evaluate: async () => {
+        if (kind === 'search') return rows;
+        return {
+          scripts: [JSON.stringify({
+            '@type': 'JobPosting',
+            title: 'Second Frontend Role',
+            description: '<p>Full second description with React and TypeScript responsibilities.</p>',
+            hiringOrganization: { name: 'Two' },
+            jobLocation: { address: { addressLocality: 'Cork', addressCountry: 'IE' } },
+            datePosted: '2026-09-08',
+            url: currentUrl,
+          })],
+          dom: { applicationUrl: 'https://apply.example/jobs/frontend-2' },
+        };
+      },
+      close: async () => {
+        closed = true;
+        events.push(kind + ':close');
+      },
+    };
+  };
+
+  const searchPage = makePage('search');
+  const detailPage = makePage('detail');
+  let pageIndex = 0;
+  const context = {
+    on() {},
+    route: async () => {},
+    newPage: async () => [searchPage, detailPage][pageIndex++],
+    close: async () => { events.push('context:close'); },
+  };
+  const browser = {
+    newContext: async () => context,
+    close: async () => { events.push('browser:close'); },
+  };
+  const chromium = { launch: async () => browser };
+
+  try {
+    const jobs = await provider.fetch({
+      name: 'ZipRecruiter IE',
+      careers_url: 'https://www.ziprecruiter.ie/jobs/search',
+      ziprecruiter: { query: 'frontend developer', location: '', maxPages: 1 },
+    }, {
+      chromium, nocache: true, maxPages: 1, cachePath, healthPath,
+      onJob: async (job) => {
+        assert.equal(searchPage.isClosed(), false);
+        assert.equal(detailPage.isClosed(), false);
+        saved.push(job.title);
+        events.push('saved:' + job.title);
+      },
+    });
+
+    assert.equal(jobs.length, 2);
+    assert.equal(jobs[0].extractionMethod, 'LISTING');
+    assert.equal(jobs[1].extractionMethod, 'JSON_LD');
+    assert.match(jobs[1].description, /Full second description/);
+    assert.equal(jobs[1].applicationUrl, 'https://apply.example/jobs/frontend-2');
+    assert.deepEqual(saved, ['First Frontend Role', 'Second Frontend Role']);
+    assert.ok(events.indexOf('saved:Second Frontend Role') < events.indexOf('detail:close'));
+    assert.ok(events.indexOf('detail:close') < events.indexOf('search:close'));
+
+    const cache = JSON.parse(readFileSync(cachePath, 'utf8'));
+    const search = Object.values(cache.searches)[0];
+    assert.equal(search.complete, true);
+    assert.equal(search.jobs.length, 2);
+    assert.equal(Object.keys(cache.details).length, 1);
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
 });

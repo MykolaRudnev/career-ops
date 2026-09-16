@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+import { DiscoveryHealth } from "./DiscoveryHealth";
 import {
   fetchStatus,
   fetchPipeline,
+  appliedJobsJson,
   fetchTailoredCvs,
   fetchActivity,
   runJobSearch,
@@ -15,6 +17,7 @@ import {
   fetchCoverLetter,
   generateMasterCv,
   updateJobStatus,
+  updateJobBid,
   openTarget,
   fetchTailoringDiff,
   fetchAiProviders,
@@ -46,10 +49,15 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
+  ArrowUpDown,
+  Edit2,
+  Check,
   Star,
   Zap,
   Filter
 } from "lucide-react";
+
+type AppliedSortColumn = "company" | "title" | "location" | "date" | "status" | "bid" | "source";
 
 export function App() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -64,7 +72,17 @@ export function App() {
   const [isTestingProvider, setIsTestingProvider] = useState(false);
   const [providerTest, setProviderTest] = useState<AiProviderTestResult | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"pending" | "processed" | "manual">("pending");
+  const [activeTab, setActiveTab] = useState<"pipeline" | "applied" | "cvs" | "settings">("pipeline");
+  const [pipelineView, setPipelineView] = useState<"pending" | "manual">("pending");
+  const [appliedStatus, setAppliedStatus] = useState<"ALL" | "No Response" | "Rejected" | "Interview" | "Offer">("ALL");
+  const [appliedSortColumn, setAppliedSortColumn] = useState<AppliedSortColumn>("date");
+  const [appliedSortDirection, setAppliedSortDirection] = useState<"asc" | "desc">("desc");
+  const [appliedSearch, setAppliedSearch] = useState<string>("");
+  const [editingBidId, setEditingBidId] = useState<string | null>(null);
+  const [editingBidValue, setEditingBidValue] = useState<string>("");
+  const [isSavingBid, setIsSavingBid] = useState<boolean>(false);
+  const [editingModalBid, setEditingModalBid] = useState<boolean>(false);
+  const [modalBidValue, setModalBidValue] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [modelFilter, setModelFilter] = useState<"ALL" | "Remote" | "Hybrid" | "Office">("ALL");
   const [countryFilter, setCountryFilter] = useState("ALL");
@@ -377,7 +395,7 @@ export function App() {
     }
   };
 
-  const currentList = activeTab === "processed" ? processedJobs : pendingJobs;
+  const currentList = pendingJobs;
   const activeOperation = operations.find((item) => ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
   const activeCvOperation = operations.find((item) => item.type === "TAILORED_CV" && ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
   const activeCoverOperation = operations.find((item) => item.type === "COVER_LETTER" && ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
@@ -445,6 +463,119 @@ export function App() {
     return matchSearch && matchModel && matchCountry && matchCat;
   }).sort((a, b) => (b.compatibilityPercent || 0) - (a.compatibilityPercent || 0));
 
+  const handleAppliedSort = (col: AppliedSortColumn) => {
+    if (appliedSortColumn === col) {
+      setAppliedSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setAppliedSortColumn(col);
+      setAppliedSortDirection(col === "date" ? "desc" : "asc");
+    }
+  };
+
+  const renderSortIcon = (col: AppliedSortColumn) => {
+    if (appliedSortColumn === col) {
+      return appliedSortDirection === "asc" ? (
+        <ChevronUp size={14} className="sort-icon active" />
+      ) : (
+        <ChevronDown size={14} className="sort-icon active" />
+      );
+    }
+    return <ArrowUpDown size={12} className="sort-icon inactive" />;
+  };
+
+  const handleSaveBid = async (job: PipelineJob, customValue?: string) => {
+    const val = (customValue !== undefined ? customValue : editingBidValue).trim();
+    setIsSavingBid(true);
+    try {
+      await updateJobBid(job.url, val, job.id);
+      showNotification(`Rate / Bid saved${val ? `: ${val}` : ""}`);
+      setProcessedJobs((prev) =>
+        prev.map((item) =>
+          item.id === job.id || (job.url && item.url === job.url) ? { ...item, bid: val } : item
+        )
+      );
+      setPendingJobs((prev) =>
+        prev.map((item) =>
+          item.id === job.id || (job.url && item.url === job.url) ? { ...item, bid: val } : item
+        )
+      );
+      if (selectedJob && (selectedJob.id === job.id || (job.url && selectedJob.url === job.url))) {
+        setSelectedJob({ ...selectedJob, bid: val });
+      }
+      setEditingBidId(null);
+    } catch (err: any) {
+      showNotification(`Failed to save Rate / Bid: ${err.message}`);
+    } finally {
+      setIsSavingBid(false);
+    }
+  };
+
+  const getAppliedStatusText = (job: PipelineJob) => {
+    return (job.extra || "").match(/\b(Rejected|Interview|Offer)\b/i)?.[1] || "No Response";
+  };
+
+  const copyAppliedJson = async () => {
+    try {
+      await navigator.clipboard.writeText(appliedJobsJson(processedJobs));
+      showNotification("All applied applications copied as JSON.");
+    } catch {
+      showNotification("Could not copy JSON. Allow clipboard access and try again.");
+    }
+  };
+
+  const appliedJobs = processedJobs
+    .filter((job) => {
+      const statusText = getAppliedStatusText(job);
+      const matchStatus =
+        appliedStatus === "ALL" ||
+        (appliedStatus === "No Response"
+          ? job.status === "applied" && statusText === "No Response"
+          : statusText.toLowerCase() === appliedStatus.toLowerCase());
+      const q = (appliedSearch || searchQuery).trim().toLowerCase();
+      const matchSearch =
+        !q ||
+        job.company.toLowerCase().includes(q) ||
+        job.title.toLowerCase().includes(q) ||
+        (job.location || "").toLowerCase().includes(q) ||
+        (job.bid || "").toLowerCase().includes(q) ||
+        (job.sourceName || "").toLowerCase().includes(q) ||
+        statusText.toLowerCase().includes(q);
+      return matchStatus && matchSearch;
+    })
+    .sort((a, b) => {
+      let cmp = 0;
+      switch (appliedSortColumn) {
+        case "company":
+          cmp = a.company.localeCompare(b.company, undefined, { sensitivity: "base" });
+          break;
+        case "title":
+          cmp = a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+          break;
+        case "location":
+          cmp = (a.location || "").localeCompare(b.location || "", undefined, { sensitivity: "base" });
+          break;
+        case "date": {
+          const dateA = a.date || (a.addedAt ? a.addedAt.slice(0, 10) : "");
+          const dateB = b.date || (b.addedAt ? b.addedAt.slice(0, 10) : "");
+          cmp = dateA.localeCompare(dateB);
+          break;
+        }
+        case "status":
+          cmp = getAppliedStatusText(a).localeCompare(getAppliedStatusText(b), undefined, { sensitivity: "base" });
+          break;
+        case "bid":
+          cmp = (a.bid || "").localeCompare(b.bid || "", undefined, { numeric: true, sensitivity: "base" });
+          break;
+        case "source": {
+          const srcA = a.sourceName || (a.url.includes("justjoin") ? "JustJoin.it" : "Direct");
+          const srcB = b.sourceName || (b.url.includes("justjoin") ? "JustJoin.it" : "Direct");
+          cmp = srcA.localeCompare(srcB, undefined, { sensitivity: "base" });
+          break;
+        }
+      }
+      return appliedSortDirection === "asc" ? cmp : -cmp;
+    });
+
   return (
     <div className="dashboard">
       {/* Header */}
@@ -470,7 +601,14 @@ export function App() {
         </div>
       </header>
 
-      <section className="ai-provider-panel" aria-label="AI provider settings">
+      <nav className="top-nav" aria-label="Dashboard sections">
+        {([['pipeline', 'Pipeline'], ['applied', 'Applied'], ['cvs', 'CVs'], ['settings', 'Settings']] as const).map(([key, label]) => (
+          <button key={key} className={`top-nav-btn ${activeTab === key ? "active" : ""}`} onClick={() => setActiveTab(key)}>{label}{key === "applied" ? ` (${processedJobs.length})` : ""}</button>
+        ))}
+      </nav>
+
+      {activeTab === "settings" && <DiscoveryHealth />}
+      {activeTab === "settings" && <section className="ai-provider-panel" aria-label="AI provider settings">
         <div className="ai-provider-heading">
           <div>
             <strong>AI Provider</strong>
@@ -524,7 +662,7 @@ export function App() {
             <span>{providerTest.success ? providerTest.response || "OK" : providerTest.error || providerTest.status}</span>
           </div>
         )}
-      </section>
+      </section>}
 
       {/* Live AI Tailoring Progress Banner */}
       {isTailoring && (
@@ -569,8 +707,8 @@ export function App() {
         </div>
       )}
 
-      {/* SECTION 2 & 3: Master CV & Tailored CVs */}
-      <div className="cv-grid">
+      {/* CV workspace */}
+      {activeTab === "cvs" && <div className="cv-grid">
         {/* SECTION 2: Master CV */}
         <div className="card">
           <div className="card-header">
@@ -620,15 +758,15 @@ export function App() {
             </button>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "130px", overflowY: "auto" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "320px", overflowY: "auto" }}>
             {tailoredCvs.length === 0 ? (
               <div style={{ fontSize: "13px", color: "var(--text-muted)", fontStyle: "italic" }}>
                 No tailored CVs generated yet. Use "Generate Tailored CV" on any vacancy below.
               </div>
             ) : (
-              tailoredCvs.slice(0, 4).map((f) => (
+              tailoredCvs.map((f) => (
                 <div
-                  key={f.filename}
+                  key={f.filePath}
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
@@ -636,29 +774,46 @@ export function App() {
                     background: "rgba(15, 23, 42, 0.6)",
                     padding: "8px 12px",
                     borderRadius: "6px",
-                    border: "1px solid var(--border)"
+                    border: "1px solid var(--border)",
+                    gap: "12px"
                   }}
                 >
-                  <div style={{ display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" }}>
-                    <span style={{ fontSize: "13px", fontWeight: 600, color: "#fff", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
-                      {f.filename}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden", minWidth: 0, flex: 1 }}>
+                    <span
+                      style={{ fontSize: "13px", fontWeight: 600, color: "#fff", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}
+                      title={f.displayName || f.filename}
+                    >
+                      {f.displayName || f.filename}
                     </span>
-                    <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                    <span style={{ fontSize: "11px", color: "var(--text-muted)", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
                       {(f.sizeBytes / 1024).toFixed(1)} KB · {new Date(f.modified).toLocaleString()}
                     </span>
                   </div>
-                  <button className="btn btn-primary btn-sm" onClick={() => handleOpen("tailored-cv", f.filePath)}>
-                    Open PDF
-                  </button>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center", flexShrink: 0 }}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleOpen("cv-folder", f.folderPath || f.filePath)}
+                      title="Open file system folder containing this CV"
+                    >
+                      <Folder size={14} /> Open Folder
+                    </button>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => handleOpen("tailored-cv", f.filePath)}
+                      title="Open PDF"
+                    >
+                      <FileText size={14} /> Open PDF
+                    </button>
+                  </div>
                 </div>
               ))
             )}
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* SECTION 1: SEARCH & PIPELINE */}
-      <div className="card">
+      {activeTab === "pipeline" && <div className="card">
         <div className="card-header">
           <div className="card-title">
             <Search size={18} color="#06b6d4" /> Section 1 — Search & Pipeline
@@ -721,20 +876,20 @@ export function App() {
           <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap", width: "100%" }}>
             <div className="tab-group">
               <button
-                className={`tab-btn ${activeTab === "pending" ? "active" : ""}`}
-                onClick={() => setActiveTab("pending")}
+                className={`tab-btn ${pipelineView === "pending" ? "active" : ""}`}
+                onClick={() => setPipelineView("pending")}
               >
                 Pending Offers ({pendingJobs.length})
               </button>
               <button
-                className={`tab-btn ${activeTab === "processed" ? "active" : ""}`}
-                onClick={() => setActiveTab("processed")}
+                className="tab-btn"
+                onClick={() => setActiveTab("applied")}
               >
-                Processed / History ({processedJobs.length})
+                Applied ({processedJobs.length})
               </button>
               <button
-                className={`tab-btn ${activeTab === "manual" ? "active" : ""}`}
-                onClick={() => setActiveTab("manual")}
+                className={`tab-btn ${pipelineView === "manual" ? "active" : ""}`}
+                onClick={() => setPipelineView("manual")}
               >
                 Manual Job
               </button>
@@ -746,12 +901,12 @@ export function App() {
               placeholder="Filter by title, company, or city..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ minWidth: "240px", flex: 1, display: activeTab === "manual" ? "none" : "block" }}
+              style={{ minWidth: "240px", flex: 1, display: pipelineView === "manual" ? "none" : "block" }}
             />
           </div>
 
           {/* Offer Focus Categories & Work Model */}
-          <div style={{ display: activeTab === "manual" ? "none" : "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
+          <div style={{ display: pipelineView === "manual" ? "none" : "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
             <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontSize: "12px", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "4px" }}>
                 <Filter size={13} /> Filter:
@@ -831,7 +986,7 @@ export function App() {
           </div>
         </div>
 
-        {activeTab === "manual" && (
+        {pipelineView === "manual" && (
           <ManualJobBoard
             providerId={selectedProviderId}
             model={selectedModel}
@@ -844,14 +999,14 @@ export function App() {
             }}
             onSaved={() => { void loadData(); }}
             onOpenExisting={(job) => {
-              setActiveTab(job.status === "pending" ? "pending" : "processed");
+              setActiveTab(job.status === "pending" ? "pipeline" : "applied");
               handleSelectJob(job);
             }}
           />
         )}
 
         {/* Pipeline Table */}
-        <div className="table-container" style={{ display: activeTab === "manual" ? "none" : "block" }}>
+        <div className="table-container" style={{ display: pipelineView === "manual" ? "none" : "block" }}>
           <table className="jobs-table">
             <thead>
               <tr>
@@ -921,7 +1076,7 @@ export function App() {
                           <span>{job.title}</span>
                           {job.manualEntry && <span className="badge badge-manual">MANUAL</span>}
                           {job.matchClassification && (
-                            <span className={`badge-match badge-match-${job.matchClassification.toLowerCase().replaceAll(" ", "-")}`} title={job.reason}>
+                            <span className={`badge-match badge-match-${job.matchClassification.toLowerCase().replaceAll(" ", "-")}`} title={job.reasonDisplay || job.reason}>
                               {isBestMatchOffer(job) && <Star size={11} fill="#facc15" />}{job.matchClassification}
                             </span>
                           )}
@@ -936,11 +1091,7 @@ export function App() {
                             </span>
                           )}
                         </div>
-                        {(job.reasonDisplay || job.reason) && (
-                          <div className="match-reason">
-                            {job.reasonDisplay || `${job.matchClassification} Reason: ${job.reason}${job.compatibilityPercent ? ` | ${job.compatibilityPercent}% compatible` : ""}`}
-                          </div>
-                        )}
+                        {(job.reasonDisplay || job.reason) && <button className="reason-toggle" title={job.reasonDisplay || job.reason} onClick={(event) => { event.stopPropagation(); handleSelectJob(job); }}>ⓘ Why this match</button>}
                       </td>
                       <td style={{ color: "#38bdf8" }}>{job.company}</td>
                       <td>{job.location}</td>
@@ -1038,7 +1189,194 @@ export function App() {
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
+
+      {activeTab === "applied" && (
+        <section className="card applied-card">
+          <div className="card-header">
+            <div className="card-title">
+              <FileCheck size={18} /> Applied applications ({appliedJobs.length})
+            </div>
+            <div className="applied-controls" style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+              <button className="btn btn-outline" onClick={() => void copyAppliedJson()} title="Copy every application marked applied, regardless of search or filters">
+                Copy all as JSON
+              </button>
+              <input
+                type="text"
+                className="search-input"
+                placeholder="Search applied jobs..."
+                value={appliedSearch}
+                onChange={(e) => setAppliedSearch(e.target.value)}
+                style={{ minWidth: "220px" }}
+              />
+              <select value={appliedStatus} onChange={(e) => setAppliedStatus(e.target.value as typeof appliedStatus)}>
+                <option value="ALL">All statuses</option>
+                <option value="No Response">No Response</option>
+                <option value="Interview">Interview</option>
+                <option value="Offer">Offer</option>
+                <option value="Rejected">Rejected</option>
+              </select>
+            </div>
+          </div>
+          <div className="table-container">
+            <table className="jobs-table applied-table">
+              <thead>
+                <tr>
+                  <th onClick={() => handleAppliedSort("company")} className="sortable-th" title="Sort by Company">
+                    <div className="th-content">
+                      <span>Company</span>
+                      {renderSortIcon("company")}
+                    </div>
+                  </th>
+                  <th onClick={() => handleAppliedSort("title")} className="sortable-th" title="Sort by Job Title">
+                    <div className="th-content">
+                      <span>Job Title</span>
+                      {renderSortIcon("title")}
+                    </div>
+                  </th>
+                  <th onClick={() => handleAppliedSort("location")} className="sortable-th" title="Sort by Location">
+                    <div className="th-content">
+                      <span>Location</span>
+                      {renderSortIcon("location")}
+                    </div>
+                  </th>
+                  <th onClick={() => handleAppliedSort("date")} className="sortable-th" title="Sort by Date Sent">
+                    <div className="th-content">
+                      <span>Date Sent</span>
+                      {renderSortIcon("date")}
+                    </div>
+                  </th>
+                  <th onClick={() => handleAppliedSort("status")} className="sortable-th" title="Sort by Status">
+                    <div className="th-content">
+                      <span>Status</span>
+                      {renderSortIcon("status")}
+                    </div>
+                  </th>
+                  <th onClick={() => handleAppliedSort("bid")} className="sortable-th" title="Sort by Proposed Rate / Bid">
+                    <div className="th-content">
+                      <span>Rate / Bid</span>
+                      {renderSortIcon("bid")}
+                    </div>
+                  </th>
+                  <th onClick={() => handleAppliedSort("source")} className="sortable-th" title="Sort by Source">
+                    <div className="th-content">
+                      <span>Source</span>
+                      {renderSortIcon("source")}
+                    </div>
+                  </th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {appliedJobs.map((job) => (
+                  <tr key={job.id} onClick={() => handleSelectJob(job)} style={{ cursor: "pointer" }}>
+                    <td style={{ color: "#38bdf8", fontWeight: 600 }}>{job.company}</td>
+                    <td>{job.title}</td>
+                    <td>{job.location || "—"}</td>
+                    <td>{job.date || (job.addedAt ? new Date(job.addedAt).toLocaleDateString() : "—")}</td>
+                    <td>
+                      <span className={`status-badge status-${getAppliedStatusText(job).toLowerCase().replaceAll(" ", "-")}`}>
+                        {getAppliedStatusText(job)}
+                      </span>
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {editingBidId === job.id ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                          <input
+                            type="text"
+                            className="bid-inline-input"
+                            value={editingBidValue}
+                            onChange={(e) => setEditingBidValue(e.target.value)}
+                            placeholder="e.g. 250 PLN/h"
+                            autoFocus
+                            disabled={isSavingBid}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void handleSaveBid(job);
+                              if (e.key === "Escape") setEditingBidId(null);
+                            }}
+                            style={{
+                              padding: "4px 8px",
+                              fontSize: "12px",
+                              borderRadius: "4px",
+                              border: "1px solid var(--accent, #38bdf8)",
+                              background: "var(--card-bg, #0f172a)",
+                              color: "#fff",
+                              width: "110px"
+                            }}
+                          />
+                          <button
+                            className="btn btn-primary btn-xs"
+                            onClick={() => void handleSaveBid(job)}
+                            disabled={isSavingBid}
+                            title="Save rate"
+                          >
+                            <Check size={12} />
+                          </button>
+                          <button
+                            className="btn btn-outline btn-xs"
+                            onClick={() => setEditingBidId(null)}
+                            disabled={isSavingBid}
+                            title="Cancel"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div
+                          className="bid-cell"
+                          onClick={() => {
+                            setEditingBidId(job.id);
+                            setEditingBidValue(job.bid || "");
+                          }}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            cursor: "pointer",
+                            padding: "2px 6px",
+                            borderRadius: "4px"
+                          }}
+                          title="Click to edit proposed Rate / Bid"
+                        >
+                          <span style={{ color: job.bid ? "#34d399" : "var(--text-muted)", fontWeight: job.bid ? 600 : 400 }}>
+                            {job.bid || "—"}
+                          </span>
+                          <Edit2 size={12} className="edit-bid-icon" style={{ opacity: 0.4 }} />
+                        </div>
+                      )}
+                    </td>
+                    <td>{job.sourceName || (job.url.includes("justjoin") ? "JustJoin.it" : "Direct")}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <button className="btn btn-outline btn-sm" onClick={() => handleSelectJob(job)}>
+                          View
+                        </button>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => {
+                            setEditingBidId(job.id);
+                            setEditingBidValue(job.bid || "");
+                          }}
+                          title="Edit Rate / Bid"
+                        >
+                          <Edit2 size={12} /> Rate
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {appliedJobs.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="empty-cell">
+                      No applied jobs match this filter.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* SECTION 4: JOB DETAILS MODAL */}
       {selectedJob && (
@@ -1075,6 +1413,72 @@ export function App() {
                 <span className="detail-label">Current Status</span>
                 <span className="detail-val" style={{ textTransform: "capitalize" }}>
                   {selectedJob.status}
+                </span>
+              </div>
+              <div className="detail-item">
+                <span className="detail-label">Rate / Bid</span>
+                <span className="detail-val" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  {editingModalBid ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      <input
+                        type="text"
+                        value={modalBidValue}
+                        onChange={(e) => setModalBidValue(e.target.value)}
+                        placeholder="e.g. 250 PLN/h"
+                        autoFocus
+                        style={{
+                          padding: "2px 6px",
+                          fontSize: "12px",
+                          borderRadius: "4px",
+                          border: "1px solid var(--accent, #38bdf8)",
+                          background: "#0f172a",
+                          color: "#fff",
+                          width: "110px"
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            void handleSaveBid(selectedJob, modalBidValue);
+                            setEditingModalBid(false);
+                          }
+                          if (e.key === "Escape") setEditingModalBid(false);
+                        }}
+                      />
+                      <button
+                        className="btn btn-primary btn-xs"
+                        onClick={() => {
+                          void handleSaveBid(selectedJob, modalBidValue);
+                          setEditingModalBid(false);
+                        }}
+                        title="Save"
+                      >
+                        <Check size={11} />
+                      </button>
+                      <button
+                        className="btn btn-outline btn-xs"
+                        onClick={() => setEditingModalBid(false)}
+                        title="Cancel"
+                      >
+                        <X size={11} />
+                      </button>
+                    </span>
+                  ) : (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ color: selectedJob.bid ? "#34d399" : "var(--text-muted)", fontWeight: selectedJob.bid ? 600 : 400 }}>
+                        {selectedJob.bid || "—"}
+                      </span>
+                      <button
+                        className="btn btn-outline btn-xs"
+                        style={{ padding: "2px 4px", border: "none", cursor: "pointer" }}
+                        onClick={() => {
+                          setModalBidValue(selectedJob.bid || "");
+                          setEditingModalBid(true);
+                        }}
+                        title="Edit proposed Rate / Bid"
+                      >
+                        <Edit2 size={11} />
+                      </button>
+                    </span>
+                  )}
                 </span>
               </div>
             </div>
@@ -1395,7 +1799,7 @@ export function App() {
       )}
 
       {/* SECTION 5: ACTIVITY PANEL */}
-      <div className="activity-panel">
+      {activeTab === "pipeline" && <div className="activity-panel">
         <div className="activity-header">
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <Clock size={16} color="#06b6d4" />
@@ -1440,7 +1844,7 @@ export function App() {
             {activity?.lastOp?.stdout || activity?.lastOp?.stderr || "No recent execution output."}
           </pre>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

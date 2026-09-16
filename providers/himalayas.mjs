@@ -2,13 +2,13 @@
 /** @typedef {import('./_types.js').Provider} Provider */
 
 // Himalayas provider - board-wide remote jobs API
-// (https://himalayas.app/jobs/api?limit=50). Returns { jobs: [...] }. The
+// (https://himalayas.app/jobs/api?limit=20). Returns { jobs: [...] }. The
 // full feed is fetched so scan.mjs's title_filter / location_filter can do
 // the local gating consistently with other zero-token board providers.
 //
 // Wire in via a `job_boards:` entry with `provider: himalayas`.
 
-const FEED_URL = 'https://himalayas.app/jobs/api?limit=50';
+const FEED_URL = 'https://himalayas.app/jobs/api?limit=20';
 const TRUSTED_HOST = 'himalayas.app';
 
 /** @param {string} url */
@@ -81,14 +81,19 @@ export default {
    * @returns {Promise<Array<{title: string, url: string, company: string, location: string, postedAt?: number}>>}
    */
   async fetch(entry, ctx) {
-    const feedUrl = assertHimalayasUrl(FEED_URL);
-    // redirect:'error' prevents SSRF via server-side redirects; combined with
-    // assertHimalayasUrl above it keeps the request pinned to himalayas.app.
-    const json = await ctx.fetchJson(feedUrl, { redirect: 'error' });
-    if (!json || !Array.isArray(json.jobs)) {
-      throw new Error(`himalayas: unexpected API response - expected { jobs: [...] }, got keys: [${json ? Object.keys(json).join(', ') : 'null'}]`);
+    const jobs = [], seen = new Set();
+    let cursor;
+    for (let page = 0; page < (entry.max_pages || 100); page++) {
+      const url = new URL(FEED_URL);
+      if (cursor) url.searchParams.set('cursor', cursor);
+      const json = await ctx.fetchJson(assertHimalayasUrl(url.href), { redirect:'error' });
+      if (!Array.isArray(json?.jobs)) throw new Error('himalayas: unexpected API response');
+      jobs.push(...parseHimalayasResponse(json));
+      if (!json.nextCursor || seen.has(json.nextCursor) || !json.jobs.length) return jobs;
+      cursor = json.nextCursor; seen.add(cursor);
     }
-    return parseHimalayasResponse(json);
+    ctx.markPartial?.('Himalayas browse page budget reached; feed is not exhaustive');
+    return jobs;
   },
 };
 
@@ -120,7 +125,13 @@ export function parseHimalayasResponse(json) {
       title,
       url,
       company: cleanText(item.companyName),
-      location: locationText(item.locationRestrictions),
+      location: locationText((item.locationRestrictions || []).map(v => typeof v === 'string' ? v : v.name || v.alpha2)),
+      eligibleCountries:(item.locationRestrictions || []).map(v => typeof v === 'string' ? v : v.alpha2 || v.name),
+      timezoneRestrictions:item.timezoneRestrictions || [], workModel:'REMOTE',
+      worldwide: Array.isArray(item.locationRestrictions) && item.locationRestrictions.length === 0 && !(item.timezoneRestrictions || []).length,
+      applyUrl:item.applicationLink, description:item.description, sourceJobId:item.guid,
+      salaryMin:item.minSalary, salaryMax:item.maxSalary, salaryCurrency:item.currency, salaryPeriod:item.salaryPeriod,
+      seniority:item.seniority, employmentType:item.employmentType, technologies:item.categories || [], expiresAt:toEpochMs(item.expiryDate),
       postedAt: toEpochMs(item.pubDate),
     });
   }

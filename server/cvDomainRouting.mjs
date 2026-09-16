@@ -4,6 +4,32 @@
  * Factual claims stay grounded in cv.md + knowledge/*.md — nothing is invented here.
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { getCareerOpsRoot } from '../path-resolver.mjs';
+
+// Supplementary evidence stays in the user layer. Only the explicitly marked,
+// source-annotated registry table extends project pools; it never changes JD
+// classification, employer history, or the primary-domain ratio.
+export function portfolioProjectAdditions() {
+  let markdown;
+  try { markdown = readFileSync(join(getCareerOpsRoot(), 'knowledge/projects.md'), 'utf8'); }
+  catch { return []; }
+  const section = markdown.split(/^## Portfolio-verified additions\s*$/m)[1]?.split(/^## /m)[0] || '';
+  return section.split('\n').filter(line => line.startsWith('|')).flatMap(line => {
+    const cells = line.split('|').slice(1, -1).map(cell => cell.trim());
+    if (cells.length !== 5) return [];
+    const [name, domain, url, tech, description] = cells;
+    if (!['REACT_FRONTEND', 'MAGENTO_HYVA', 'SHOPIFY'].includes(domain)
+        || !name || !tech || !description || !/^https:\/\//.test(url)) return [];
+    return [{ name, domain, url, tech, description, aliases: [name] }];
+  });
+}
+
+function matchesPortfolioProject(name, domain) {
+  return portfolioProjectAdditions().some(project => project.domain === domain && normalizeName(project.name) === normalizeName(name));
+}
+
 export const PRIMARY_DOMAINS = [
   "REACT_FRONTEND",
   "MAGENTO_HYVA",
@@ -458,15 +484,15 @@ export function projectMatchesAliases(name, aliases) {
 }
 
 export function isShopifyProject(name) {
-  return projectMatchesAliases(name, SHOPIFY_ALIASES);
+  return projectMatchesAliases(name, SHOPIFY_ALIASES) || matchesPortfolioProject(name, 'SHOPIFY');
 }
 
 export function isReactProject(name) {
-  return projectMatchesAliases(name, REACT_ALIASES);
+  return projectMatchesAliases(name, REACT_ALIASES) || matchesPortfolioProject(name, 'REACT_FRONTEND');
 }
 
 export function isMagentoProject(name) {
-  return projectMatchesAliases(name, MAGENTO_ALIASES);
+  return projectMatchesAliases(name, MAGENTO_ALIASES) || matchesPortfolioProject(name, 'MAGENTO_HYVA');
 }
 
 export function isReactOnlyProject(name) {
@@ -598,7 +624,9 @@ export function classifyDomain(title = "", jd = "", extra = "") {
 }
 
 export function domainProjectPool(primaryDomain) {
-  return DOMAIN_PROJECT_POOLS[primaryDomain] || DOMAIN_PROJECT_POOLS.GENERAL_FRONTEND;
+  const pool = DOMAIN_PROJECT_POOLS[primaryDomain] || DOMAIN_PROJECT_POOLS.GENERAL_FRONTEND;
+  const domain = primaryDomain === 'FULLSTACK_TYPESCRIPT_NODE' ? 'REACT_FRONTEND' : primaryDomain;
+  return [...pool, ...portfolioProjectAdditions().filter(project => project.domain === domain)];
 }
 
 export function countProjectsInPool(projects, pool) {
@@ -618,8 +646,8 @@ export function validateDomainConsistency({ primaryDomain, projects = [], jdText
   if (!PRIMARY_DOMAINS.includes(primary)) {
     return { ok: false, reasons: [`Unknown primary domain: ${primaryDomain}`], primaryDomain: primary, counts: {} };
   }
-  if (names.length < 2 || names.length > 4) {
-    reasons.push(`Expected 2–4 projects, received ${names.length}`);
+  if (names.length < 2 || names.length > 6) {
+    reasons.push(`Expected 2–6 projects (prefer 4–6), received ${names.length}`);
   }
 
   const shopifyCount = names.filter(isShopifyProject).length;

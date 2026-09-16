@@ -156,7 +156,40 @@ export function readMasterCvMarkdown() {
 }
 
 export function loadParsedMasterCv() {
-  return parseCvMarkdown(readMasterCvMarkdown());
+  const parsed = parseCvMarkdown(readMasterCvMarkdown());
+  const profile = yaml.load(fs.readFileSync(path.join(WORKSPACE_ROOT, "config", "profile.yml"), "utf8")) || {};
+  const locations = profile.cv?.experience_locations || {};
+  parsed.experience = parsed.experience.map(entry => ({
+    ...entry,
+    location: locations[entry.company] || entry.location
+  }));
+  return parsed;
+}
+
+// The model selects evidence; identity, chronology and engagement locations
+// remain canonical even if a provider returns stale or reordered metadata.
+export function canonicalTailoredExperience(experience, master = loadParsedMasterCv().experience) {
+  if (!Array.isArray(experience) || experience.length !== master.length) {
+    throw new Error("Tailored CV must preserve every master employer.");
+  }
+  return master.map(entry => {
+    const matches = experience.filter(item => item.company === entry.company);
+    if (matches.length !== 1 || !Array.isArray(matches[0].bullets) || !matches[0].bullets.length) {
+      throw new Error(`Missing or duplicate tailored experience: ${entry.company}`);
+    }
+    return { ...entry, bullets: matches[0].bullets };
+  });
+}
+
+export function selectProfessionalDevelopment(certifications, jdText = "") {
+  const tokens = jdText.toLowerCase().match(/[a-z][a-z.+-]*/g) || [];
+  const relevant = new Set(tokens.filter(token => token.length > 2));
+  return certifications.map((entry, index) => ({
+    entry, index,
+    score: (entry.title.toLowerCase().match(/[a-z][a-z.+-]*/g) || []).filter(token => relevant.has(token)).length
+  })).filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index).slice(0, 3)
+    .sort((a, b) => a.index - b.index).map(item => item.entry);
 }
 
 export function candidateContactFields(candidate = loadProfile()) {
@@ -184,10 +217,10 @@ export function buildMasterCvPayload(overrides = {}) {
       headline
     },
     sections: {
-      summary: "Professional Summary",
+      summary: "",
       skills: "Technical Skills",
       experience: "Work Experience",
-      projects: "Key Projects",
+      projects: "Projects",
       education: "Education",
       certifications: "Professional Development",
       interests: "Languages"

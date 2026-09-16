@@ -23,6 +23,7 @@ export interface PipelineJob {
   responsibilitySplit?: { frontend: string; backend: string; platform: string };
   evaluatedFrom?: "full-jd" | "pipeline-summary";
   salary?: string;
+  bid?: string;
   hasTailoredCv?: boolean;
   tailoredPdfPath?: string;
   source?: string;
@@ -32,6 +33,20 @@ export interface PipelineJob {
   description?: string;
   sourceName?: string;
   notes?: string;
+}
+
+export function appliedJobsJson(jobs: PipelineJob[]): string {
+  return JSON.stringify(jobs.filter((job) => job.status === "applied").map((job) => ({
+    company: job.company,
+    title: job.title,
+    url: job.url,
+    location: job.location || "",
+    date: job.date || "",
+    status: "applied",
+    bid: job.bid || "",
+    source: job.sourceName || "",
+    notes: job.notes || "",
+  })), null, 2);
 }
 
 export type OperationStatus = "PENDING" | "RUNNING" | "CANCELLING" | "CANCELLED" | "COMPLETED" | "FAILED";
@@ -118,6 +133,11 @@ export interface SystemStatus {
 }
 
 export interface TailoredCvFile {
+  jobUrl?: string;
+  company?: string;
+  role?: string;
+  displayName: string;
+  folderPath: string;
   filename: string;
   filePath: string;
   sizeBytes: number;
@@ -356,6 +376,17 @@ export async function updateJobStatus(url: string, status: "reviewed" | "applied
     body: JSON.stringify({ url, status })
   });
   const data = await res.json();
+  return data.success;
+}
+
+export async function updateJobBid(url: string, bid: string, jobId?: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/api/job/bid`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, bid, jobId })
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || "Failed to update rate/bid");
   return data.success;
 }
 

@@ -58,25 +58,34 @@ export default {
    * @returns {Promise<Array<{title: string, url: string, company: string, location: string}>>} Array of parsed job offers.
    */
   async fetch(entry, ctx) {
-    const url = entry.careers_url;
-    if (!url) throw new Error('solidjobs: careers_url required');
-    assertUrl(url);
-    // redirect:'error' prevents SSRF via server-side redirects
-    const json = await ctx.fetchJson(url, { redirect: 'error' });
-    if (!json || !Array.isArray(json.jobs)) {
-      throw new Error(`solidjobs: unexpected API response — expected { jobs: [...] }, got keys: [${json ? Object.keys(json).join(', ') : 'null'}]`);
+    if (!entry.careers_url) throw new Error('solidjobs: careers_url required');
+    assertUrl(entry.careers_url);
+    const base = new URL(entry.careers_url);
+    assertUrl(base.href);
+    base.pathname = '/public-api/offers/IT';
+    base.searchParams.set('campaign', 'career-ops-mykola');
+    base.searchParams.set('pageSize', '100');
+    const jobs = [], seen = new Set();
+    for (let page = 0; page < (entry.max_pages || 50); page++) {
+      base.searchParams.set('pageIndex', String(page));
+      const json = await ctx.fetchJson(base.href, { redirect: 'error', headers: { 'X-Api-Version': '1.0' } });
+      if (!Array.isArray(json?.jobs)) throw new Error('solidjobs: unexpected API response');
+      let added = 0;
+      for (const j of json.jobs) {
+        if (!j || typeof j.url !== 'string' || !j.url.trim() || seen.has(j.url)) continue;
+        seen.add(j.url); added++;
+        jobs.push({
+          title:j.title || '', url:j.url.trim(), company:j.company || entry.name, sourceJobId:j.jobOfferKey,
+          location:[...(Array.isArray(j.locations) ? j.locations : [j.locations]), j.isRemote ? 'Remote' : j.isHybrid ? 'Hybrid' : ''].filter(Boolean).join(', '),
+          country:'PL', city:Array.isArray(j.locations) ? j.locations[0] : j.locations, workModel:j.isRemote ? 'REMOTE' : j.isHybrid ? 'HYBRID' : 'ONSITE',
+          description:j.description, salary:j.salary, salaryMin:j.salary?.from, salaryMax:j.salary?.to,
+          salaryCurrency:j.salary?.currency, salaryPeriod:j.salary?.period, contractType:j.salary?.employmentType,
+          employmentType:j.contractTime, seniority:j.experienceLevel, technologies:(j.skills || []).map(s=>s.name),
+          postedAt:Date.parse(j.validFrom) || undefined, publishedAt:j.validFrom, expiresAt:j.validTo,
+        });
+      }
+      if (!added || page + 1 >= (json.totalPages || 1)) break;
     }
-
-    /** @type {Array<{ title?: string, url?: string, company?: string, locations?: string | string[] }>} */
-    const jobs = json.jobs;
-
-    return jobs
-      .filter(j => j && typeof j === 'object' && typeof j.url === 'string' && j.url.trim() !== '')
-      .map(j => ({
-        title: j.title || '',
-        url: /** @type {string} */ (j.url || '').trim(),
-        company: j.company || entry.name,
-        location: Array.isArray(j.locations) ? j.locations.join(', ') : (typeof j.locations === 'string' ? j.locations : ''),
-      }));
+    return jobs;
   },
 };

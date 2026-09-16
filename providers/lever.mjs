@@ -83,6 +83,7 @@ export default {
     if (!Array.isArray(json)) return [];
     return json.map(j => ({
       title: j.text || '',
+        sourceJobId:j.id, applyUrl:j.applyUrl, employmentType:j.categories?.commitment, workModel:j.workplaceType,
       url: j.hostedUrl || '',
       company: entry.name,
       location: resolveLocation(j.categories),

@@ -11,12 +11,13 @@ import {
 } from "./aiTailor.ts";
 import { buildSimpleTailorResult } from "./cvFromMaster.mjs";
 import { DomainValidationError } from "./cvDomainRouting.mjs";
-import { analyzeJobMatch } from "./jobMatch.mjs";
+import { analyzeJobMatch, jobMatchPolicyKey } from "./jobMatch.mjs";
 import { operationManager, type OperationRecord } from "./operations.ts";
 import { OperationCancelledError, ProcessTimeoutError } from "./process.ts";
 import { generateCoverLetter as generateCoverArtifact } from "./coverLetter.ts";
+import { artifactDirectories } from "./jobArtifacts.ts";
 
-const JOB_MATCH_VERSION = 3;
+const JOB_MATCH_VERSION = 4;
 
 function findLocalJobDescription(job: { url?: string; company?: string; title?: string; description?: string }): string {
   if (String(job.description || "").trim().length >= 40) return String(job.description).trim();
@@ -25,18 +26,16 @@ function findLocalJobDescription(job: { url?: string; company?: string; title?: 
   const needleUrl = String(job.url || "").trim();
   const needleCompany = String(job.company || "").toLowerCase();
   const needleTitle = String(job.title || "").toLowerCase();
-  for (const entry of fs.readdirSync(outputsDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const dir = path.join(outputsDir, entry.name);
+  for (const dir of artifactDirectories().sort((a, b) => b.split(path.sep).length - a.split(path.sep).length)) {
     const jdPath = path.join(dir, "job-description.md");
     if (!fs.existsSync(jdPath)) continue;
-    const metaPath = path.join(dir, "metadata.json");
+    const metaPath = path.join(dir, fs.existsSync(path.join(dir, "metadata.json")) ? "metadata.json" : "artifact-job.json");
     let matched = false;
     if (fs.existsSync(metaPath)) {
       try {
         const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
         matched = Boolean(needleUrl && meta.url === needleUrl)
-          || (String(meta.company || "").toLowerCase() === needleCompany && String(meta.role || "").toLowerCase() === needleTitle);
+          || (String(meta.company || "").toLowerCase() === needleCompany && String(meta.role || meta.title || "").toLowerCase() === needleTitle);
       } catch {
         matched = false;
       }
@@ -97,9 +96,13 @@ class CareerOpsManager {
 
   public getEvaluationForDisplay(job: { url: string; company: string; title: string; location: string; extra?: string }) {
     const cached = this.evalCache.get(job.url);
-    if (cached?.matchVersion === JOB_MATCH_VERSION) return cached;
     const localJd = findLocalJobDescription(job);
-    return { ...analyzeJobMatch(job, localJd), matchVersion: JOB_MATCH_VERSION };
+    const description = localJd || cached?.matchDescription || "";
+    const matchInputKey = JSON.stringify([job.title, job.location, job.extra, jobMatchPolicyKey()]);
+    if (cached?.matchVersion === JOB_MATCH_VERSION && cached?.matchDescription === description && cached?.matchInputKey === matchInputKey) return cached;
+    const result = { ...analyzeJobMatch(job, description), matchDescription: description, matchInputKey, matchVersion: JOB_MATCH_VERSION };
+    this.evalCache.set(job.url, result);
+    return result;
   }
 
   public getActivity() {
@@ -201,7 +204,7 @@ class CareerOpsManager {
    * Evaluate a job against cv.md rules
    */
   public async evaluateJob(job: { url: string; company: string; title: string; location: string; extra?: string }, force = false) {
-    const cached = this.evalCache.get(job.url);
+    const cached = this.getEvaluationForDisplay(job);
     if (!force && cached?.matchVersion === JOB_MATCH_VERSION && cached?.evaluatedFrom === "full-jd") return cached;
 
     const fallback = `${job.title} at ${job.company}. Location: ${job.location || "Unknown"}. ${job.extra || ""}`;
@@ -209,10 +212,12 @@ class CareerOpsManager {
     const { text: fullJd, source: jdSource } = localJd
       ? { text: localJd, source: "local-output" as const }
       : await getFullJobDescription(job.url, fallback);
-    const usableJd = fullJd && fullJd.trim().length >= 80 ? fullJd : "";
+    const usableJd = jdSource !== "fallback" && fullJd && fullJd.trim().length >= 80 ? fullJd : "";
     const result = {
       ...analyzeJobMatch(job, usableJd),
       jdSource: usableJd ? jdSource : "fallback",
+      matchDescription: usableJd,
+      matchInputKey: JSON.stringify([job.title, job.location, job.extra, jobMatchPolicyKey()]),
       matchVersion: JOB_MATCH_VERSION
     };
 
@@ -283,16 +288,20 @@ class CareerOpsManager {
 
   public async rerankJobs(jobs: Array<{ url: string; company: string; title: string; location: string; extra?: string }>, fullJdLimit = 60) {
     const preliminary = jobs.map((job) => {
-      const localJd = findLocalJobDescription(job);
-      return { job, evaluation: analyzeJobMatch(job, localJd) };
+      const localJd = findLocalJobDescription(job) || this.evalCache.get(job.url)?.matchDescription || "";
+      return { job, evaluation: { ...analyzeJobMatch(job, localJd), matchDescription: localJd } };
     });
     for (const { job, evaluation } of preliminary) {
       this.evalCache.set(job.url, { ...evaluation, matchVersion: JOB_MATCH_VERSION });
     }
 
     const candidates = preliminary
-      .filter(({ evaluation }) => evaluation.matchClassification !== "SKIP")
-      .sort((a, b) => b.evaluation.compatibilityPercent - a.evaluation.compatibilityPercent)
+      .filter(({ evaluation }) => evaluation.matchClassification !== "SKIP" && evaluation.evaluatedFrom !== "full-jd")
+      .sort((a, b) => {
+        const priority = (job: { title: string }) => /frontend|front-end|front end|\breact\b|next\.?js|ui engineer/i.test(job.title)
+          && !/full[ -]?stack|native|angular|vue|backend/i.test(job.title) ? 1 : 0;
+        return priority(b.job) - priority(a.job) || b.evaluation.compatibilityPercent - a.evaluation.compatibilityPercent;
+      })
       .slice(0, Math.max(0, Math.min(100, fullJdLimit)));
 
     let cursor = 0;

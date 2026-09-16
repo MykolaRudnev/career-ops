@@ -83,6 +83,7 @@ function pipelineLine(job: ManualJobRecord): string {
     `source-name: ${safe(job.sourceName)}`,
     `added: ${job.addedAt}`,
     job.salary ? `salary: ${safe(job.salary)}` : "",
+    job.bid ? `bid: ${safe(job.bid)}` : (job.salary ? `bid: ${safe(job.salary)}` : ""),
     job.notes ? `notes: ${safe(job.notes)}` : ""
   ].filter(Boolean).join(" | ");
   return `- [ ] ${safe(job.url)} | ${safe(job.company)} | ${safe(job.title)} | ${safe(job.location)} | ${details}`;
@@ -164,6 +165,7 @@ export async function createManualJob(input: ManualJobInput, options: { addAnywa
     status: "pending",
     extra: String(input.notes || "").trim(),
     salary: String(input.salary || "").trim(),
+    bid: String(input.salary || "").trim(),
     source: "manual",
     sourceType: "MANUAL",
     manualEntry: true,
@@ -180,7 +182,7 @@ export async function createManualJob(input: ManualJobInput, options: { addAnywa
   const initialEvaluation = options.evaluation || analyzeJobMatch(job, description);
   await appendTracker(job, initialEvaluation);
 
-  const artifactDir = jobArtifactDir(job);
+  const artifactDir = jobArtifactDir(job, { create: true });
   fs.mkdirSync(artifactDir, { recursive: true });
   fs.writeFileSync(path.join(artifactDir, "job-description.md"), description, "utf8");
   return { created: true, duplicate: false, job, initialEvaluation };

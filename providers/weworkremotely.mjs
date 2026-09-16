@@ -123,6 +123,7 @@ export function parseWwrFeed(xml, defaultCompany = 'We Work Remotely') {
 
     jobs.push({
       title,
+      description:tagText(item, 'description'), workModel:'REMOTE',
       company,
       location,
       url,

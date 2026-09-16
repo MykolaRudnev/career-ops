@@ -168,7 +168,7 @@ try {
   // fetch() passes redirect:'error' to fetchText (SSRF hardening must not regress)
   let capturedOpts = null;
   await personio.fetch(
-    { name: 'Acme', careers_url: 'https://acme.jobs.personio.de/' },
+    { name: 'Acme', careers_url: 'https://acme.jobs.personio.de/', allow_html_fallback:true },
     { fetchText: async (_url, opts) => { capturedOpts = opts; return '<workzag-jobs></workzag-jobs>'; } },
   );
   if (capturedOpts && capturedOpts.redirect === 'error') {
@@ -267,11 +267,11 @@ try {
   {
     const calls = [];
     const jobsFromFallback = await personio.fetch(
-      { name: 'Acme', careers_url: 'https://acme.jobs.personio.de/' },
+      { name: 'Acme', careers_url: 'https://acme.jobs.personio.de/', allow_html_fallback:true },
       {
         fetchText: async (url, opts) => {
           calls.push(url);
-          if (url.endsWith('/xml')) {
+          if (url.endsWith('/xml?language=en')) {
             const err = new Error('HTTP 404 Not Found');
             err.status = 404;
             throw err;
@@ -280,7 +280,7 @@ try {
         },
       },
     );
-    if (calls.length === 2 && calls[0].endsWith('/xml') && calls[1] === 'https://acme.jobs.personio.de/?language=en') {
+    if (calls.length === 2 && calls[0].endsWith('/xml?language=en') && calls[1] === 'https://acme.jobs.personio.de/?language=en') {
       pass('personio.fetch() falls back to the careers page (?language=en) after a 404 on /xml');
     } else {
       fail(`personio.fetch() fallback calls = ${JSON.stringify(calls)}`);
@@ -295,7 +295,7 @@ try {
   // fetch() re-throws non-404 errors from the /xml feed (no silent fallback).
   try {
     await personio.fetch(
-      { name: 'Acme', careers_url: 'https://acme.jobs.personio.de/' },
+      { name: 'Acme', careers_url: 'https://acme.jobs.personio.de/', allow_html_fallback:true },
       { fetchText: async () => { const err = new Error('HTTP 500 Internal Server Error'); err.status = 500; throw err; } },
     );
     fail('personio.fetch() should re-throw non-404 errors instead of falling back');

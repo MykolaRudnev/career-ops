@@ -16,6 +16,35 @@
  * Normalized job posting — the unit of currency throughout the scanner.
  *
  * @typedef {object} Job
+ * @property {string} [id] Stable source-qualified identity.
+ * @property {string} [source] Provider id; aliases survive cross-source deduplication.
+ * @property {string} [sourceType] EMPLOYER_ATS, JOB_BOARD, AGGREGATOR_API, EPRACA_OFFICIAL.
+ * @property {string} [integrationType] PUBLIC_API, OFFICIAL_API, PUBLIC_RSS, PUBLIC_XML, PUBLIC_ATS, SEARCH_ONLY, DISABLED_BLOCKED.
+ * @property {string} [sourceJobId]
+ * @property {string} [canonicalUrl]
+ * @property {string|null} [applyUrl]
+ * @property {string} [locationRaw]
+ * @property {string|null} [city]
+ * @property {string|null} [country]
+ * @property {string} [workModel]
+ * @property {string} [remoteEligibility]
+ * @property {string[]} [eligibleCountries]
+ * @property {Array<string|number>} [timezoneRestrictions]
+ * @property {string|null} [employmentType]
+ * @property {string|null} [contractType]
+ * @property {string|string[]|null} [seniority]
+ * @property {number|null} [salaryMin]
+ * @property {number|null} [salaryMax]
+ * @property {string|null} [salaryCurrency]
+ * @property {string|null} [salaryPeriod]
+ * @property {string[]} [technologies]
+ * @property {string|null} [publishedAt]
+ * @property {string|null} [expiresAt]
+ * @property {string} [discoveredAt]
+ * @property {string} [lastVerifiedAt]
+ * @property {boolean} [directEmployerSource]
+ * @property {number} [sourcePriority] Lower values survive duplicates.
+ * @property {object[]} [sourceAliases]
  * @property {string} title    Required, non-empty after trim.
  * @property {string} url      Required, absolute URL — used as the dedup key.
  * @property {string} company  May be empty when the source can't expose it
@@ -114,6 +143,9 @@
  *                              `setTimeout`-based delay.
  * @property {AbortSignal} [signal] Optional cancellation signal. Browser-backed
  *                              providers close active pages/contexts when aborted.
+ * @property {(job: Job) => Promise<void>} [onJob] Optional streaming persistence
+ *                              hook. Browser-backed providers may await it after
+ *                              each fully normalized job so later failures do not lose prior work.
  */
 
 /**

@@ -14,7 +14,7 @@ try {
   else fail(`jobicy.id is ${JSON.stringify(jobicy.id)}`);
 
   const hit = jobicy.detect({ name: 'Jobicy Board', provider: 'jobicy' });
-  if (hit && hit.url === 'https://jobicy.com/api/v2/remote-jobs?count=50') {
+  if (hit && hit.url === 'https://jobicy.com/api/v2/remote-jobs?count=200') {
     pass('jobicy.detect() claims explicit provider config');
   } else {
     fail(`jobicy.detect() returned ${JSON.stringify(hit)}`);
@@ -111,7 +111,7 @@ try {
     { fetchJson: async (url, opts) => { capturedUrl = url; capturedOpts = opts; return sample; } },
   );
 
-  if (capturedUrl === 'https://jobicy.com/api/v2/remote-jobs?count=50') {
+  if (capturedUrl === 'https://jobicy.com/api/v2/remote-jobs?count=200') {
     pass('jobicy.fetch() requests the pinned JSON feed URL');
   } else {
     fail(`jobicy.fetch() requested ${JSON.stringify(capturedUrl)}`);

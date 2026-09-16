@@ -54,10 +54,24 @@ This document acts as the definitive, multi-domain project registry for Career-O
 
 Knowledge stays broad. **Selection is domain-routed.** A deterministic validator rejects CVs before PDF if the primary pool is a minority.
 
-1. **Never dump all projects into one CV.** Select 2–4 projects. Do not reuse the same four on every CV; rotate inside the primary pool.
+1. **Never dump all projects into one CV.** Prefer 4–6 projects according to relevance and page space. Do not force eight. Rotate inside the primary pool.
 2. **Classify ONE PRIMARY DOMAIN first** (`SHOPIFY`, `REACT_FRONTEND`, `MAGENTO_HYVA`, `FULLSTACK_TYPESCRIPT_NODE`, `FRONTEND_LEAD`, `PRODUCT_ENGINEERING`, `DELIVERY_TECHNICAL`, `GENERAL_FRONTEND`). Secondary domains are optional.
 3. **PRIMARY pool must supply at least 75% of selected projects.**
-4. **SHOPIFY whitelist (use only these for Shopify CVs):** Glasy.pl, Ascent, Warmsome, Pixel25, Berg's, Diamandia (caveat: our version was not released). Target **3 Shopify + optionally 1 supporting React e-commerce** if the JD explicitly asks for React/Next.js. **Do not** normally select ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de. Never ship 1 Shopify + 3 React.
+4. **SHOPIFY whitelist (use only these for Shopify CVs):** Glasy.pl, Ascent, Warmsome, Pixel25, Berg's, Diamandia (caveat: our version was not released). Prefer 4–6 with at least 75% Shopify; optionally one supporting React e-commerce project if the JD explicitly asks for React/Next.js. Never ship 1 Shopify + 3 React.
 5. **REACT / NEXT whitelist:** ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de. Do not add Shopify-specific or Magento projects unless the JD is e-commerce-relevant.
 6. **MAGENTO / HYVÄ whitelist:** HUBER SE, Lufed IT, housetipster.com, edycja.pl, fmic.pl, dreamroots.pl, hbsgroup.net, paypair.com, British American Tobacco, catering24.co.uk, solar.com.pl, 3mk.pl. Do not select React SaaS/recruitment/NFT projects unless the JD explicitly requests React/Next.js.
 7. **Frontend Lead / General:** combine HUBER SE (leadership, direct client, e-commerce scale) with ponadczasowi.pl or copernicspace.com (React/Next.js architecture), still keeping the primary-pool 75% rule.
+
+## Portfolio-verified additions
+
+Observed directly in the live Projects section at https://www.mrudnev.com/case-studies on 2026-09-10. These are supplementary, self-reported project contributions, not independently audited employment history. Project identity, stack, contribution and commercial context are explicit on the visible cards. The linked sites corroborate business identity where accessible, not authorship or the historical stack. Do not assign these projects to an employer, date, production release, or quantified impact without canonical evidence. The original preferred projects above remain the first choices.
+
+| Project | Primary domain | Reference URL | Technology stack | Verified contribution and commercial context |
+|---|---|---|---|---|
+| Internorm | REACT_FRONTEND | https://internorm-dev.vercel.app/ | Gatsby, TypeScript, WordPress | Developed a corporate website with custom elements and SEO-friendly design; portfolio links a development preview, not a verified production release. |
+| Novum Klinika | REACT_FRONTEND | https://www.novum.com.pl/ | React, Next.js, TypeScript | Contributed responsive UI and cross-device compatibility improvements to a healthcare platform. |
+| Billennium | REACT_FRONTEND | https://billennium.com/ | Next.js, React, TypeScript, Storybook | Developed an IT consultancy website with modular UI components and Storybook for reusability. |
+| Doppler Manufaktur | MAGENTO_HYVA | https://doppler-manufaktur.com/ | Magento 2, JavaScript, XML | Supported a commercial Magento store with bug fixes, new features and custom elements. |
+| bragan.net | MAGENTO_HYVA | https://bragan.net/ | Magento 2, JavaScript, XML | Implemented Magento updates and bug fixes for an automotive parts store; current linked-site availability was not verified. |
+
+Not added to the selectable registry: **Excellent** (Magento contribution appears on the portfolio, but no link or unambiguous business identity); **Claspwell** (portfolio asserts founder/product ownership and backend scope absent from cv.md; do not import those claims). No website biography, tenure, employment dates or new metrics were imported.

@@ -370,6 +370,10 @@ const CANONICAL_SKILLS_FIRST_ORDER = [
 const CANONICAL_SKILLS_FIRST_POSITIONS = new Map(
   CANONICAL_SKILLS_FIRST_ORDER.map((key, index) => [key, index]),
 );
+const RECRUITER_FIRST_POSITIONS = new Map([
+  'summary', 'competencies', 'experience', 'projects', 'skills',
+  'education', 'certifications', 'awards', 'interests',
+].map((key, index) => [key, index]));
 
 /**
  * First index in `comparableSections` whose key sits earlier in `positions`
@@ -420,7 +424,8 @@ export function validateCvSectionOrder(html, cvMarkdown, { allowReorder = false 
   const canonicalComparable = rendered.filter(section => CANONICAL_TAILORED_POSITIONS.has(section.key));
   if (canonicalComparable.length >= 2
       && (findOrderDivergence(canonicalComparable, CANONICAL_TAILORED_POSITIONS) === -1
-          || findOrderDivergence(canonicalComparable, CANONICAL_SKILLS_FIRST_POSITIONS) === -1)) {
+          || findOrderDivergence(canonicalComparable, CANONICAL_SKILLS_FIRST_POSITIONS) === -1
+          || findOrderDivergence(canonicalComparable, RECRUITER_FIRST_POSITIONS) === -1)) {
     return;
   }
 

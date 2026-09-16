@@ -299,10 +299,10 @@ tracked_companies:
     scan();
     const afterSecond = entries().length;
 
-    if (afterFirst === 1 && afterSecond === 1) {
-      pass('two scan runs over a one-role/three-city board yield exactly 1 pipeline entry');
+    if (afterFirst === 3 && afterSecond === 3) {
+      pass('location-aware discovery retains three cities, with no repeat additions on the next scan');
     } else {
-      fail(`same-role/different-city leak: ${afterFirst} entr(y/ies) after run 1, ${afterSecond} after run 2 (want 1 and 1)`);
+      fail(`same-role/different-city leak: ${afterFirst} entr(y/ies) after run 1, ${afterSecond} after run 2 (want 3 and 3)`);
     }
   } catch (err) {
     fail(`e2e scan run failed: ${err.message}`);

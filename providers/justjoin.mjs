@@ -89,6 +89,7 @@ export function parseJustJoinResponse(json) {
       if (!slug || !title) return null;
       return {
         title,
+        sourceJobId:offer.guid, applyUrl:offer.applyUrl, workModel:offer.workplaceType, seniority:offer.experienceLevel, technologies:(offer.requiredSkills || []).map(s=>s.name), employmentType:offer.workingTime, salary:offer.employmentTypes?.find(s=>s.currencySource==='original') || offer.employmentTypes?.[0], expiresAt:offer.expiredAt,
         url: `${JOB_BASE}${slug}`,
         company: String(offer.companyName || '').trim(),
         location: normalizeLocation(offer),

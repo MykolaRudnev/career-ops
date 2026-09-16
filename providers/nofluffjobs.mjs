@@ -117,6 +117,7 @@ export function parseNoFluffJobsResponse(json) {
       if (!title || !slug) return null;
       return {
         title,
+        sourceJobId:posting.id, salary:posting.salary, seniority:posting.seniority, technologies:posting.technology ? [posting.technology] : [],
         url: `${JOB_BASE}${slug}`,
         company,
         location: normalizeLocation(posting),

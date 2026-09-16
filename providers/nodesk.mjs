@@ -124,6 +124,7 @@ export function parseNodeskFeed(xml, defaultCompany = 'NoDesk') {
     const postedAt = toEpochMs(tagText(item, 'pubDate'));
     const job = {
       title,
+      description:tagText(item, 'description'), workModel:'REMOTE',
       company,
       location: '',
       url,

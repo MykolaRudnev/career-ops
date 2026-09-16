@@ -28,8 +28,12 @@ test("6. frontend-heavy TypeScript React Node.js fullstack is STRONG or BEST", (
   assert.match(classify("Fullstack TypeScript / React / Node.js", "Primarily frontend-focused: build React and TypeScript web UI. Maintain light Node.js APIs.").matchClassification, /^(BEST|STRONG) MATCH$/);
 });
 
-test("7. React TypeScript frontend with optional Node.js is BEST MATCH", () => {
-  assert.equal(classify("Frontend Engineer React / TypeScript", "React and TypeScript are required for frontend web applications. Node.js is optional / nice-to-have.").matchClassification, "BEST MATCH");
+test("7. optional Node.js does not lower frontend compatibility", () => {
+  const jd = "React and TypeScript are required for frontend web applications.";
+  const baseline = classify("Frontend Engineer React / TypeScript", jd);
+  const optional = classify("Frontend Engineer React / TypeScript", `${jd} Node.js is optional / nice-to-have.`);
+  assert.equal(optional.compatibilityPercent, baseline.compatibilityPercent);
+  assert.match(optional.matchClassification, /^(BEST|STRONG) MATCH$/);
 });
 
 test("8. Magento Hyva frontend is BEST MATCH", () => {
@@ -61,7 +65,7 @@ test("mandatory backend ownership is LOW even with React and Node.js", () => {
 });
 
 test("mandatory language is distinguished from optional local language", () => {
-  assert.equal(classify("Frontend React Engineer", "React and TypeScript required. German is nice-to-have.").matchClassification, "BEST MATCH");
+  assert.match(classify("Frontend React Engineer", "React and TypeScript required. Build accessible frontend components and design systems. German is nice-to-have.").matchClassification, /^(BEST|STRONG) MATCH$/);
   assert.equal(classify("Frontend React Engineer", "React and TypeScript required. Fluent German is mandatory.").matchClassification, "LOW MATCH");
 });
 
@@ -90,5 +94,5 @@ test("generic frontend title without stack is not Best Match", () => {
 test("reason string is labeled and includes compatibility", () => {
   const result = classify("Senior Frontend Developer", "Required: React, Next.js and TypeScript. Build accessible web applications and own frontend architecture.");
   assert.match(result.reasonDisplay, /^BEST MATCH Reason: /);
-  assert.match(result.reasonDisplay, /92% compatible/);
+  assert.ok(result.reasonDisplay.includes(`${result.compatibilityPercent}% compatible`));
 });

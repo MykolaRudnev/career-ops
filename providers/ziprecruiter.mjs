@@ -21,14 +21,29 @@ const CACHE_PATH = join(getCareerOpsRoot(), 'scratch', 'ziprecruiter-cache.json'
 const HEALTH_PATH = join(getCareerOpsRoot(), 'scratch', 'provider-health', 'ziprecruiter.json');
 const SEARCH_TTL_MS = 6 * 60 * 60 * 1000;
 const DETAIL_TTL_MS = 18 * 60 * 60 * 1000;
-const DEFAULT_CONCURRENCY = 3;
-const MAX_CONCURRENCY = 4;
-const DEFAULT_DETAIL_LIMIT = 20;
-const MAX_DETAIL_LIMIT = 60;
 const DEFAULT_QUERY_LIMIT = 17;
 const NAVIGATION_TIMEOUT_MS = 18_000;
-const BETWEEN_PAGES_MS = 900;
 const CHALLENGE_SETTLE_MS = 3_500;
+const SEARCH_RESULT_LINK_SELECTOR = [
+  'a[href*="/jobs/"]',
+  'a[href*="/job/"]',
+  'a[href*="/c/"]',
+].join(',');
+const SEARCH_EMPTY_SELECTOR = [
+  '[data-testid*="no-results" i]',
+  '[class*="no-results" i]',
+  '[class*="empty-state" i]',
+].join(',');
+const DETAIL_READY_SELECTOR = [
+  'script[type="application/ld+json"]',
+  '[data-testid*="job-description" i]',
+  '.job-body',
+  '[class*="job-description" i]',
+  '[class*="job_description" i]',
+  '.jobDetail-header h1',
+  'article h1',
+  'main h1',
+].join(',');
 const ZIPRECRUITER_HOST_RE = /(^|\.)ziprecruiter\.(?:com|ie)$/i;
 const PROFILE_SESSION_PATHS = Object.freeze([
   'Preferences', 'Secure Preferences', 'Cookies', 'Cookies-journal',
@@ -70,6 +85,18 @@ const epoch = (value) => {
   return Number.isNaN(parsed) ? undefined : parsed;
 };
 const hash = (value) => createHash('sha256').update(String(value || '')).digest('hex');
+export function parsePostedAt(value, now = Date.now()) {
+  const direct = epoch(value);
+  if (direct) return direct;
+  const text = clean(value).toLowerCase();
+  if (!text) return undefined;
+  if (/^(?:today|just posted|just now)$/.test(text)) return now;
+  if (/^yesterday$/.test(text)) return now - 24 * 60 * 60 * 1000;
+  const relative = text.match(/(\d+)\+?\s*(minute|hour|day|week|month)s?\s+ago/);
+  if (!relative) return undefined;
+  const units = { minute: 60_000, hour: 3_600_000, day: 86_400_000, week: 604_800_000, month: 2_592_000_000 };
+  return now - Number(relative[1]) * units[relative[2]];
+}
 
 export function normalizeZipRecruiterUrl(raw, base = SEARCH_URL) {
   try {
@@ -278,23 +305,43 @@ export function mergeDetailFallback(structured, dom, fallbackUrl) {
   let applicationUrl = '';
   try {
     const candidate = new URL(clean(dom?.applicationUrl));
-    if (candidate.protocol === 'https:' && !ZIPRECRUITER_HOST_RE.test(candidate.hostname)) applicationUrl = candidate.href;
+    if (candidate.protocol === 'https:') applicationUrl = candidate.href;
   } catch {}
-  const url = applicationUrl || sourceUrl;
   return {
     title: clean(base.title || dom?.title), company: clean(base.company || dom?.company),
     description, location, salary: clean(base.salary || dom?.salary),
     employmentType: clean(base.employmentType || dom?.employmentType),
-    remoteType: clean(base.remoteType || dom?.remoteType), postedAt: base.postedAt || epoch(dom?.datePosted),
+    remoteType: clean(base.remoteType || dom?.remoteType), postedAt: base.postedAt || parsePostedAt(dom?.datePosted),
     eligibleCountries, eligibility: base.eligibility || classifyEligibility({ location, description, eligibleCountries }),
-    url, sourceUrl, applicationUrl, sourceJobId: clean(base.sourceJobId || sourceJobIdFromUrl(sourceUrl)),
+    url: sourceUrl, sourceUrl, applicationUrl, sourceJobId: clean(base.sourceJobId || sourceJobIdFromUrl(sourceUrl)),
     extractionMethod: structured ? 'JSON_LD' : 'DOM',
   };
 }
 
-function readCache() {
+export function mergeSearchResult(row, detail, entryName = '') {
+  const sourceUrl = normalizeZipRecruiterUrl(detail?.sourceUrl || detail?.url || row?.url);
+  const sourceJobId = clean(detail?.sourceJobId || sourceJobIdFromUrl(sourceUrl));
+  const base = detail || {};
+  return {
+    ...base,
+    title: clean(base.title || row?.title),
+    company: clean(base.company || row?.company || entryName),
+    location: clean(base.location || row?.location),
+    salary: clean(base.salary || row?.salary),
+    description: clean(base.description || row?.snippet),
+    postedAt: base.postedAt || parsePostedAt(row?.posted),
+    url: sourceUrl,
+    sourceUrl,
+    sourceJobId,
+    sourceType: 'aggregator',
+    source: 'ziprecruiter',
+    extractionMethod: base.extractionMethod || 'LISTING',
+  };
+}
+
+function readCache(path = CACHE_PATH) {
   try {
-    const value = JSON.parse(readFileSync(CACHE_PATH, 'utf8'));
+    const value = JSON.parse(readFileSync(path, 'utf8'));
     return value && typeof value === 'object' ? value : { searches: {}, details: {} };
   } catch { return { searches: {}, details: {} }; }
 }
@@ -306,18 +353,52 @@ function atomicJson(path, value) {
   renameSync(tmp, path);
 }
 
-async function withWorkers(items, concurrency, worker, signal) {
-  let cursor = 0;
-  const results = [];
-  async function run() {
-    while (cursor < items.length && !signal?.aborted) {
-      const index = cursor++;
-      try { results[index] = await worker(items[index], index); }
-      catch (error) { results[index] = { error }; }
-    }
+function createDiagnostics(cfg) {
+  const enabled = cfg?.diagnostics === true;
+  const dirValue = clean(cfg?.diagnosticsDir || join('scratch', 'ziprecruiter-debug'));
+  return {
+    enabled, screenshots: enabled && cfg?.screenshots !== false,
+    directory: expandHome(dirValue), counter: 0,
+  };
+}
+
+function diagnosticLog(diag, event, details = {}, force = false) {
+  if (!diag.enabled && !force) return;
+  const record = { at: new Date().toISOString(), event, ...details };
+  console.error(`[ziprecruiter] ${JSON.stringify(record)}`);
+}
+
+async function diagnosticStep(diag, page, event, details = {}, forceScreenshot = false) {
+  diagnosticLog(diag, event, details, forceScreenshot);
+  if ((!diag.screenshots && !forceScreenshot) || !page || page.isClosed?.()) return;
+  try {
+    mkdirSync(diag.directory, { recursive: true });
+    const suffix = String(++diag.counter).padStart(3, '0');
+    const filename = `${suffix}-${event.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase()}.png`;
+    await page.screenshot({ path: join(diag.directory, filename), fullPage: false });
+    diagnosticLog(diag, 'screenshot:saved', { event, path: join(diag.directory, filename) });
+  } catch (error) {
+    diagnosticLog(diag, 'screenshot:error', { event, error: clean(error?.message || error) }, true);
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
-  return results;
+}
+
+function observePage(diag, page, label) {
+  if (!diag.enabled) return;
+  page.on('close', () => diagnosticLog(diag, 'page:closed', { page: label }));
+  page.on('crash', () => diagnosticLog(diag, 'page:crashed', { page: label }, true));
+  page.on('pageerror', (error) => diagnosticLog(diag, 'page:error', { page: label, error: clean(error?.message || error) }, true));
+  page.on('requestfailed', (request) => {
+    const type = request.resourceType();
+    if (['document', 'xhr', 'fetch'].includes(type)) diagnosticLog(diag, 'request:failed', {
+      page: label, type, url: request.url(), error: request.failure()?.errorText || '',
+    }, true);
+  });
+}
+
+function checkpointJob(path, cache, cacheKey, jobs, detailKey, job) {
+  if (job.extractionMethod !== 'LISTING') cache.details[detailKey] = { fetchedAt: Date.now(), job };
+  cache.searches[cacheKey] = { fetchedAt: Date.now(), jobs: [...jobs], complete: false };
+  atomicJson(path, cache);
 }
 
 async function readPageState(page) {
@@ -336,28 +417,44 @@ async function pageState(page) {
   return { title: state.title, body: state.body };
 }
 
+async function waitForSearchPage(page) {
+  await pageState(page);
+  await page.waitForFunction(
+    ({ links, empty }) => {
+      const hasJob = Array.from(document.querySelectorAll(links)).some((anchor) => {
+        const url = new URL(anchor.href || anchor.getAttribute('href') || '', location.href);
+        return /ziprecruiter\.(?:com|ie)$/i.test(url.hostname) && !/\/jobs(?:-search|\/search)\/?$/i.test(url.pathname);
+      });
+      const body = document.body?.innerText || '';
+      return hasJob || Boolean(document.querySelector(empty)) || /(?:no|zero) jobs? (?:found|match)/i.test(body);
+    },
+    { links: SEARCH_RESULT_LINK_SELECTOR, empty: SEARCH_EMPTY_SELECTOR },
+    { timeout: NAVIGATION_TIMEOUT_MS },
+  );
+  await pageState(page);
+}
 async function extractSearchPage(page) {
-  return page.evaluate(() => {
+  return page.evaluate((linkSelector) => {
     const out = [];
-    const roots = Array.from(document.querySelectorAll('article, li, [data-testid*="job" i], [class*="job_result" i], [class*="job-card" i]'));
-    const candidates = roots.length ? roots : Array.from(document.querySelectorAll('a[href]')).map((a) => a.parentElement || a);
-    for (const root of candidates) {
-      const anchor = root.matches?.('a[href]') ? root : root.querySelector?.('a[href*="/jobs/"], a[href*="/job/"], a[href*="/c/"]');
-      if (!anchor) continue;
-      const href = anchor.href || anchor.getAttribute('href') || '';
-      const pathname = new URL(href, location.href).pathname;
-      if (!/ziprecruiter\.(?:com|ie)/i.test(href) || !/(?:\/jobs?\/|\/c\/)/i.test(pathname) || /\/jobs(?:-search|\/search)\/?$/i.test(pathname)) continue;
-      const title = (root.querySelector?.('h2,h3,[data-testid*="title" i]')?.textContent || anchor.textContent || '').trim();
+    const seen = new Set();
+    const anchors = Array.from(document.querySelectorAll(linkSelector));
+    for (const anchor of anchors) {
+      const url = new URL(anchor.href || anchor.getAttribute('href') || '', location.href);
+      if (!/ziprecruiter\.(?:com|ie)$/i.test(url.hostname) || /\/jobs(?:-search|\/search)\/?$/i.test(url.pathname) || seen.has(url.href)) continue;
+      const root = anchor.closest('article,li,[data-testid*="job" i],[class*="job_result" i],[class*="job-card" i],[class*="jobCard" i]') || anchor.parentElement || anchor;
+      const title = (root.querySelector?.('h2,h3,h4,[data-testid*="title" i],[class*="title" i]')?.textContent || anchor.textContent || '').trim();
       if (!title || title.length < 3 || /^(?:search|next|previous|filter)$/i.test(title)) continue;
       const company = (root.querySelector?.('[data-testid*="company" i],[class*="company" i]')?.textContent || '').trim();
       const locationText = (root.querySelector?.('[data-testid*="location" i],[class*="location" i]')?.textContent || '').trim();
       const salary = (root.querySelector?.('[data-testid*="salary" i],[class*="salary" i]')?.textContent || '').trim();
       const snippet = (root.querySelector?.('[class*="snippet" i],[data-testid*="snippet" i],p')?.textContent || '').trim();
-      const posted = (root.querySelector?.('time,[class*="posted" i],[class*="date" i]')?.getAttribute?.('datetime') || root.querySelector?.('time,[class*="posted" i],[class*="date" i]')?.textContent || '').trim();
-      if (title) out.push({ title, company, location: locationText, salary, snippet, posted, url: new URL(href, location.href).href });
+      const postedNode = root.querySelector?.('time,[class*="posted" i],[class*="date" i]');
+      const posted = (postedNode?.getAttribute?.('datetime') || postedNode?.textContent || '').trim();
+      seen.add(url.href);
+      out.push({ title, company, location: locationText, salary, snippet, posted, url: url.href });
     }
     return out;
-  });
+  }, SEARCH_RESULT_LINK_SELECTOR);
 }
 
 async function goToNextPage(page, query, location, nextPageNum) {
@@ -396,28 +493,32 @@ async function goToNextPage(page, query, location, nextPageNum) {
     await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
   }
 
-  await page.waitForSelector('main, article, [data-testid*="job" i], a[href]', { timeout: 5_000 }).catch(() => {});
-  await page.waitForTimeout(600);
+  await waitForSearchPage(page);
 }
 
 async function extractDetailPage(page, url) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
-  await page.waitForSelector('script[type="application/ld+json"], main, article, h1', { timeout: 5_000 }).catch(() => {});
+  await pageState(page);
+  await page.locator(DETAIL_READY_SELECTOR).first().waitFor({ state: 'attached', timeout: NAVIGATION_TIMEOUT_MS });
   await pageState(page);
   const data = await page.evaluate(() => {
     const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]')).map((el) => el.textContent || '');
-    const root = document.querySelector('main, [role="main"], article') || document.body;
+    const root = document.querySelector('[data-testid*="job-description" i],.job-body,[class*="job-description" i],[class*="job_description" i]')
+      || document.querySelector('main, [role="main"], article') || document.body;
     const clone = root?.cloneNode(true);
     clone?.querySelectorAll?.('script,style,nav,header,footer,aside,[class*="similar" i],[class*="recommend" i],[class*="cookie" i]').forEach((el) => el.remove());
     const find = (selectors) => (document.querySelector(selectors)?.textContent || '').trim();
-    const apply = Array.from(document.querySelectorAll('a[href]')).find((a) => /apply/i.test(a.textContent || ''));
+    const apply = Array.from(document.querySelectorAll('a[href]')).find((a) => {
+      const label = `${a.textContent || ''} ${a.getAttribute('aria-label') || ''} ${a.getAttribute('data-testid') || ''}`;
+      return /apply/i.test(label);
+    });
     return { scripts, dom: {
       title: find('h1'), company: find('[data-testid*="company" i],[class*="company" i]'),
       location: find('[data-testid*="location" i],[class*="location" i]'), salary: find('[data-testid*="salary" i],[class*="salary" i]'),
       employmentType: find('[class*="employment" i],[class*="job-type" i]'),
       description: clone?.innerText || '', applicationUrl: apply?.href || '',
       remoteType: /\bremote\b/i.test(clone?.innerText || '') ? 'REMOTE' : '',
-      datePosted: document.querySelector('time')?.getAttribute('datetime') || '',
+      datePosted: document.querySelector('time')?.getAttribute('datetime') || document.querySelector('time')?.textContent || find('[class*="posted" i],[class*="date" i]'),
     }};
   });
   return mergeDetailFallback(parseJobPostingJsonLd(data.scripts, page.url()), data.dom, page.url());
@@ -435,19 +536,23 @@ const provider = {
   },
   dedupKey(job) { return job?.sourceJobId ? `ziprecruiter:${job.sourceJobId}` : null; },
   async fetch(entry, ctx) {
+    throw new Error('ziprecruiter: DISABLED — browser discovery retired; no MCP configured');
     const started = Date.now();
     const cfg = entry?.ziprecruiter || {};
     const searchBaseUrl = assertZipRecruiterUrl(entry?.careers_url || SEARCH_URL);
     const queries = (Array.isArray(cfg.queries) && cfg.queries.length ? cfg.queries : DEFAULT_QUERIES).slice(0, DEFAULT_QUERY_LIMIT);
     const locations = (Array.isArray(cfg.locations) && cfg.locations.length ? cfg.locations : DEFAULT_LOCATIONS).slice(0, 4);
-    const query = clean(cfg.query || queries[0] || DEFAULT_QUERIES[0]);
-    const location = clean(cfg.location || locations[0] || DEFAULT_LOCATIONS[0]);
+    const query = clean(Object.hasOwn(cfg, 'query') ? cfg.query : queries[0] || DEFAULT_QUERIES[0]);
+    const location = clean(Object.hasOwn(cfg, 'location') ? cfg.location : locations[0] || DEFAULT_LOCATIONS[0]);
+    const diagnostics = createDiagnostics(cfg);
     const maxPages = Math.min(Math.max(1, Number(cfg.maxPages || entry?.max_pages || ctx?.maxPages) || 5), 5);
 
-    const cache = readCache(); cache.searches ||= {}; cache.details ||= {};
+    const cachePath = ctx?.cachePath || CACHE_PATH;
+    const healthPath = ctx?.healthPath || HEALTH_PATH;
+    const cache = readCache(cachePath); cache.searches ||= {}; cache.details ||= {};
     const cacheKey = `${query}\u0000${location}\u0000${maxPages}`;
     const cached = cache.searches[cacheKey];
-    if (!ctx?.nocache && cached && Array.isArray(cached.jobs) && cached.jobs.length > 0 && Date.now() - cached.fetchedAt < SEARCH_TTL_MS) {
+    if (!ctx?.nocache && cached?.complete !== false && Array.isArray(cached?.jobs) && cached.jobs.length > 0 && Date.now() - cached.fetchedAt < SEARCH_TTL_MS) {
       return cached.jobs;
     }
 
@@ -466,23 +571,33 @@ const provider = {
     };
     const responseTimes = [];
     let browser; let context; let interrupted = false;
+    let searchPage; let detailPage;
+    const discovered = [];
+    const seen = new Set();
     let cleanupBrowserSession = () => {};
     const abort = () => { interrupted = true; void context?.close().catch(() => {}); void browser?.close().catch(() => {}); };
     ctx?.signal?.addEventListener?.('abort', abort, { once: true });
     process.once('SIGINT', abort); process.once('SIGTERM', abort);
 
     try {
-      const { chromium } = await import('playwright');
+      const chromium = ctx?.chromium || (await import('playwright')).chromium;
       ({ browser, context, cleanup: cleanupBrowserSession } = await launchBrowserContext(chromium, cfg));
-      await context.route('**/*', (route) => ['image', 'media', 'font'].includes(route.request().resourceType()) ? route.abort() : route.continue());
-      const searchPage = await context.newPage();
-      const discovered = [];
-      const seen = new Set();
+      context.on('close', () => diagnosticLog(diagnostics, 'context:closed'));
+      await ctx?.setupContext?.(context);
+      await context.route('**/*', (route) => {
+        const blocked = ['media', 'font', ...(diagnostics.screenshots ? [] : ['image'])];
+        return blocked.includes(route.request().resourceType()) ? route.abort() : route.continue();
+      });
+      searchPage = await context.newPage();
+      detailPage = await context.newPage();
+      observePage(diagnostics, searchPage, 'search');
+      observePage(diagnostics, detailPage, 'detail');
 
       // One entry, one window, one browser session:
       const startUrl = buildZipRecruiterSearchUrl(searchBaseUrl, query, location, 1);
       const tick = Date.now();
       try {
+        diagnosticLog(diagnostics, 'search:navigate', { url: startUrl, query, location });
         await searchPage.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
         const currentUrl = new URL(searchPage.url());
         if (ZIPRECRUITER_HOST_RE.test(currentUrl.hostname) && !currentUrl.searchParams.has('q') && !currentUrl.searchParams.has('search')) {
@@ -491,15 +606,16 @@ const provider = {
             await searchPage.goto(redirectedUrl, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
           }
         }
-        await searchPage.waitForSelector('main, article, [data-testid*="job" i], a[href]', { timeout: 5_000 }).catch(() => {});
-        await pageState(searchPage);
+        await waitForSearchPage(searchPage);
+        await diagnosticStep(diagnostics, searchPage, 'search:ready', { url: searchPage.url() });
       } catch (error) {
+        await diagnosticStep(diagnostics, searchPage, 'search:error', { url: searchPage.url(), error: clean(error?.message || error) }, true);
         if (error?.code === 'EZIPRECRUITER_BLOCKED') {
           metrics.blockedPages++;
           metrics.status = 'BLOCKED';
           metrics.reason = error.message;
           if (ctx?.maxPages === 1 || ctx?.probe) throw error;
-          atomicJson(HEALTH_PATH, { ...metrics, durationMs: Date.now() - started });
+          atomicJson(healthPath, { ...metrics, durationMs: Date.now() - started });
           return [];
         }
         metrics.failures++;
@@ -514,13 +630,12 @@ const provider = {
         if (interrupted || ctx?.signal?.aborted) break;
 
         if (pageNum > 1) {
-          await new Promise((resolve) => setTimeout(resolve, BETWEEN_PAGES_MS));
           if (interrupted || ctx?.signal?.aborted) break;
 
           const pageTick = Date.now();
           try {
             await goToNextPage(searchPage, query, location, pageNum);
-            await pageState(searchPage);
+            await diagnosticStep(diagnostics, searchPage, 'search:page-ready', { page: pageNum, url: searchPage.url() });
           } catch (error) {
             if (error?.code === 'EZIPRECRUITER_BLOCKED') {
               metrics.blockedPages++;
@@ -537,10 +652,12 @@ const provider = {
         }
 
         const rows = await extractSearchPage(searchPage);
+        await diagnosticStep(diagnostics, searchPage, 'search:cards-extracted', { page: pageNum, count: rows.length });
         metrics.searchPagesProcessed++;
         let newJobsOnThisPage = 0;
 
         for (const row of rows || []) {
+          if (interrupted || ctx?.signal?.aborted) break;
           const url = normalizeZipRecruiterUrl(row.url);
           if (!url || !clean(row.title)) continue;
           const id = sourceJobIdFromUrl(url);
@@ -550,18 +667,37 @@ const provider = {
             continue;
           }
           seen.add(key);
-          discovered.push({
-            title: clean(row.title),
-            url,
-            company: clean(row.company || entry?.name),
-            location: clean(row.location),
-            salary: clean(row.salary),
-            description: clean(row.snippet),
-            postedAt: epoch(row.posted),
-            sourceJobId: id,
-            sourceType: 'aggregator',
-            source: 'ziprecruiter',
-          });
+          let detail;
+          const cachedDetail = cache.details[key];
+          try {
+            diagnosticLog(diagnostics, 'detail:navigate', { page: pageNum, index: newJobsOnThisPage + 1, title: clean(row.title), url });
+            if (!ctx?.nocache && cachedDetail?.job && Date.now() - cachedDetail.fetchedAt < DETAIL_TTL_MS) {
+              detail = cachedDetail.job;
+              diagnosticLog(diagnostics, 'detail:cache-hit', { url });
+            } else {
+              const detailTick = Date.now();
+              detail = await extractDetailPage(detailPage, url);
+              responseTimes.push(Date.now() - detailTick);
+            }
+            metrics.detailsExtracted++;
+            if (detail.extractionMethod === 'JSON_LD') metrics.structuredDataExtracted++;
+            else metrics.domFallbacks++;
+            await diagnosticStep(diagnostics, detailPage, 'detail:extracted', { title: detail.title || row.title, url, method: detail.extractionMethod });
+          } catch (error) {
+            metrics.failures++;
+            if (error?.code === 'EZIPRECRUITER_BLOCKED') metrics.blockedPages++;
+            await diagnosticStep(diagnostics, detailPage, 'detail:error', { title: clean(row.title), url, error: clean(error?.message || error) }, true);
+          }
+          const job = mergeSearchResult(row, detail, entry?.name);
+          discovered.push(job);
+          checkpointJob(cachePath, cache, cacheKey, discovered, key, job);
+          try {
+            await ctx?.onJob?.(job);
+            diagnosticLog(diagnostics, 'job:saved', { count: discovered.length, title: job.title, url: job.url });
+          } catch (error) {
+            metrics.failures++;
+            diagnosticLog(diagnostics, 'job:save-error', { title: job.title, url: job.url, error: clean(error?.message || error) }, true);
+          }
           newJobsOnThisPage++;
         }
 
@@ -570,7 +706,6 @@ const provider = {
         }
       }
 
-      await searchPage.close().catch(() => {});
       metrics.jobsDiscovered = discovered.length;
       if (metrics.blockedPages > 0) {
         metrics.status = discovered.length > 0 ? 'DEGRADED' : 'BLOCKED';
@@ -584,20 +719,29 @@ const provider = {
       metrics.averageResponseTimeMs = responseTimes.length ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length) : 0;
 
       if (discovered.length > 0) {
-        cache.searches[cacheKey] = { fetchedAt: Date.now(), jobs: discovered };
-        atomicJson(CACHE_PATH, cache);
+        cache.searches[cacheKey] = { fetchedAt: Date.now(), jobs: discovered, complete: true };
+        atomicJson(cachePath, cache);
       }
-      atomicJson(HEALTH_PATH, { ...metrics, durationMs: Date.now() - started });
+      atomicJson(healthPath, { ...metrics, durationMs: Date.now() - started });
+      diagnosticLog(diagnostics, 'scan:complete', { jobs: discovered.length, failures: metrics.failures, status: metrics.status });
       return discovered;
     } catch (error) {
       metrics.status = error?.code === 'EZIPRECRUITER_BLOCKED' ? 'BLOCKED' : error?.code === 'ABORT_ERR' ? 'DEGRADED' : 'ERROR';
       metrics.reason = clean(error?.message || error);
       metrics.averageResponseTimeMs = responseTimes.length ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length) : 0;
-      atomicJson(HEALTH_PATH, { ...metrics, durationMs: Date.now() - started });
+      atomicJson(healthPath, { ...metrics, durationMs: Date.now() - started });
+      diagnosticLog(diagnostics, 'scan:error', { error: metrics.reason, savedJobs: discovered.length }, true);
+      if (discovered.length > 0 && error?.code !== 'ABORT_ERR') {
+        diagnosticLog(diagnostics, 'scan:returning-partial', { jobs: discovered.length }, true);
+        return discovered;
+      }
       throw error;
     } finally {
       ctx?.signal?.removeEventListener?.('abort', abort);
       process.removeListener('SIGINT', abort); process.removeListener('SIGTERM', abort);
+      diagnosticLog(diagnostics, 'browser:closing', { savedJobs: discovered.length });
+      await detailPage?.close().catch(() => {});
+      await searchPage?.close().catch(() => {});
       await context?.close().catch(() => {}); await browser?.close().catch(() => {});
       cleanupBrowserSession();
     }

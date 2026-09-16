@@ -191,6 +191,7 @@ export function parseRetryAfterMs(value) {
  * REDIRECT_REFUSAL_CAUSE_MESSAGE above for how it's distinguished.
  */
 export function isRetryableError(err) {
+  if (err?.noRetry) return false;
   const status = err?.status;
   if (status === 429) return true;
   if (typeof status === 'number' && status >= 500) return true;

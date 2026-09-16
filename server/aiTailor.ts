@@ -4,8 +4,8 @@ import { execFileSync } from "node:child_process";
 import { WORKSPACE_ROOT } from "./fileAccess.ts";
 import { aiProviderRegistry } from "./ai/providerRegistry.ts";
 import type { ProviderExecutionEvent } from "./ai/types.ts";
-import { candidateFileSlug, loadDashboardProfile } from "./profile.ts";
-import { buildMasterCvPayload, candidateContactFields, loadParsedMasterCv, masterOutputPaths } from "./cvFromMaster.mjs";
+import { loadDashboardProfile } from "./profile.ts";
+import { buildMasterCvPayload, candidateContactFields, loadParsedMasterCv, masterOutputPaths, canonicalTailoredExperience, selectProfessionalDevelopment } from "./cvFromMaster.mjs";
 import {
   classifyDomain,
   domainProjectPool,
@@ -15,7 +15,7 @@ import {
 } from "./cvDomainRouting.mjs";
 import { countPdfPagesFromBuffer, parseLoggedPdfPageCount } from "./pdfPageCount.mjs";
 import { OperationCancelledError, ProcessTimeoutError, runCancellableCommand } from "./process.ts";
-import { jobArtifactDir, jobArtifactSlug } from "./jobArtifacts.ts";
+import { jobArtifactDir, tailoredPdfFilename } from "./jobArtifacts.ts";
 
 export interface TailoringDiff {
   summary_focus: string;
@@ -76,6 +76,71 @@ export interface TailorJobMetadata {
   tailoringDiff: TailoringDiff;
   htmlPath: string;
   pdfPath: string;
+}
+
+const SUMMARY_TECH_KEYWORDS = [
+  "Magento 2", "Hyvä CMS", "Hyvä", "Shopify", "Liquid", "Custom Sections",
+  "JSON Templates", "Next.js", "React", "TypeScript", "JavaScript", "Node.js",
+  "Alpine.js", "Tailwind CSS", "Styled Components", "Gatsby", "GraphQL",
+  "REST API", "Core Web Vitals", "SSR/ISR/SSG", "SSR", "ISR", "SSG",
+  "Accessibility", "WCAG", "Technical SEO", "SEO", "CI/CD", "Docker"
+];
+
+function plainSummary(summary: string): string {
+  return summary.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*\*/g, "");
+}
+
+function phrasePattern(phrase: string): RegExp {
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu");
+}
+
+function appearsInJd(phrase: string, jdText: string): boolean {
+  if (phrase === "React") {
+    return phrasePattern(phrase).test(jdText.replace(/\bReact\s+Native\b/giu, ""));
+  }
+  if (phrase === "SSR/ISR/SSG") {
+    return ["SSR", "ISR", "SSG"].every(part => phrasePattern(part).test(jdText));
+  }
+  return phrasePattern(phrase).test(jdText);
+}
+
+/**
+ * Add presentation-only emphasis without changing summary wording. AI-selected
+ * matched keywords lead the ordering; the allowlist supplies a deterministic
+ * fallback and prevents generic phrases or whole sentences from being bolded.
+ */
+export function emphasizeSummaryKeywords(
+  summary: string,
+  jdText: string,
+  aiMatchedKeywords: string[] = []
+): string {
+  const plain = plainSummary(summary);
+  const byName = new Map(SUMMARY_TECH_KEYWORDS.map(keyword => [keyword.toLowerCase(), keyword]));
+  const requested = aiMatchedKeywords
+    .map(keyword => byName.get(String(keyword).trim().toLowerCase()))
+    .filter((keyword): keyword is string => Boolean(keyword));
+  const candidates = [...new Set([...requested, ...SUMMARY_TECH_KEYWORDS])]
+    .filter(keyword => appearsInJd(keyword, jdText) && phrasePattern(keyword).test(plain));
+
+  const wordCount = plain.trim().split(/\s+/).filter(Boolean).length;
+  const maxBoldWords = Math.max(1, Math.floor(wordCount * 0.25));
+  const selected: string[] = [];
+  let boldWords = 0;
+  for (const keyword of candidates) {
+    if (selected.length >= 6) break;
+    if (selected.some(existing => phrasePattern(existing).test(keyword) || phrasePattern(keyword).test(existing))) continue;
+    const keywordWords = keyword.split(/[\s/]+/).filter(Boolean).length;
+    if (boldWords + keywordWords > maxBoldWords) continue;
+    selected.push(keyword);
+    boldWords += keywordWords;
+  }
+
+  let emphasized = plain;
+  for (const keyword of selected.sort((a, b) => b.length - a.length)) {
+    emphasized = emphasized.replace(phrasePattern(keyword), match => `**${match}**`);
+  }
+  return emphasized;
 }
 
 /**
@@ -159,9 +224,10 @@ PRIMARY DOMAIN: ${classified.primary}
 SECONDARY DOMAINS: ${classified.secondary.join(", ") || "none"}
 PRIMARY PROJECT WHITELIST (must supply at least 75% of selected projects): ${primaryPool}
 Do NOT normally select: ${shopifyForbidden}
-Shopify vacancies: select 3 Shopify projects + optionally 1 supporting React e-commerce project ONLY if the JD explicitly asks for React/Next.js. NEVER ship 1 Shopify + 3 React.
-Magento vacancies: 3 Magento + optionally 1 React if the JD asks for React/Next.js.
-React vacancies: 3 React + optionally 1 e-commerce project if relevant.
+Prefer 4–6 projects; at least 75% must come from the primary pool.
+Shopify vacancies: optionally ONE supporting React e-commerce project ONLY if the JD explicitly asks for React/Next.js.
+Magento vacancies: optionally ONE React project if the JD asks for React/Next.js.
+React vacancies: optionally ONE e-commerce project if relevant.
 A deterministic validator will REJECT the CV before PDF if the primary pool is a minority.
 
 FULL JOB DESCRIPTION:
@@ -170,7 +236,7 @@ ${fullJd.substring(0, 8500)}
 MASTER CV GROUND TRUTH (Authoritative facts, chronology, metrics, companies):
 ${cvMd}
 
-VERIFIED COMMERCIAL PROJECTS CATALOG (Select 2-4 matching projects from this catalog ONLY):
+VERIFIED COMMERCIAL PROJECTS CATALOG (Prefer 4–6 matching projects from this catalog ONLY):
 ${projectsMd}
 
 DOMAIN KNOWLEDGE (PRIMARY first; secondary only if the JD explicitly justifies it):
@@ -239,34 +305,35 @@ TECHNICAL SKILLS RULES & LIMITS
 ==================================================
 PROFESSIONAL SUMMARY RULES
 ==================================================
-- Write a concise 3 to 5 line professional summary tailored specifically to THIS role.
+- Write 45–70 words, approximately 3 visual lines, tailored specifically to THIS role. It renders directly below the header WITHOUT a visible heading.
+- Immediately communicate target role, verified commercial tenure, strongest vacancy-specific specialization and strongest relevant production scope or impact.
+- Avoid: results-driven professional, passionate developer, enthusiastic, proven track record, committed to excellence, dynamic professional, leveraging cutting-edge technology.
 - Highlight the exact technical and architectural overlap with this vacancy's primary needs.
 - Do not list every technology the candidate knows; use the strongest vacancy-specific positioning.
+- After choosing the summary wording, wrap approximately 3–6 of its most important technical keywords or short phrases in **double asterisks**. Select only terms explicitly important in this JD. Do not bold generic tenure, seniority, production, scale, or whole-sentence language. Keep bold text below roughly 25% of the summary. A deterministic renderer will enforce these limits.
 
 ==================================================
 WORK EXPERIENCE BULLETS RULES
 ==================================================
-- Must preserve the exact 6 companies and dates from Master CV:
-  1. HUBER SE (Jun 2026 - Present | Self-employed / Remote, Germany | Lead Front-End Developer - Magento 2 / Hyvä)
-  2. Lufed IT (Jan 2026 - Jun 2026 | Remote | Senior Front-End Developer)
-  3. For Better Future Software House (Sep 2020 - Feb 2026 | Remote | Senior Front-End Developer)
-  4. Cloudflight (Jul 2022 - Oct 2024 | Remote | Front-End Developer)
-  5. 3MK Protection (Mar 2024 - May 2024 | Remote | Front-End Developer)
-  6. ORBA (Jan 2020 - Apr 2020 | Lublin, Poland | Frontend Developer)
-- Select 2 to 4 strongest relevant bullets per employer.
-- HUBER SE and For Better Future can have 3-4 bullets when highly relevant to the JD. Older or less relevant roles should have 2 bullets.
+- Preserve every employer, title and date from this canonical list. Locations reflect engagement context; the header separately states the candidate's current base:
+${loadParsedMasterCv().experience.map((entry, index) => `  ${index + 1}. ${entry.company} (${entry.dates} | ${entry.location} | ${entry.role})`).join("\n")}
+- Recent/relevant roles: approximately 3–5 strong bullets. Older/supporting roles: 1–3 bullets.
+- Each bullet should normally fit 1–2 visual lines: action + technical/business scope + result or practice. Avoid vague claims without concrete context; never invent metrics.
+- Map mandatory JD requirements into Work Experience wherever employer-specific factual evidence exists; do not put all matching words only in Technical Skills. A skill inventory alone does not establish its use at a particular employer. Do not fabricate testing, design-system ownership or integrations to close a gap.
 - Do NOT introduce unlisted tool names into experience bullets that are absent from cv.md.
 
 ==================================================
 PROJECT SELECTION RULES
 ==================================================
-- Select 2 to 4 projects strictly from the VERIFIED COMMERCIAL PROJECTS catalog.
+- Prefer 4–6 projects strictly from the VERIFIED COMMERCIAL PROJECTS catalog, according to vacancy relevance and page space. Fewer are acceptable for a narrow evidence pool. Never force eight.
 - Do not reuse the same four projects on every CV; rotate within the PRIMARY DOMAIN whitelist.
 - PRIMARY DOMAIN pool must supply at least 75% of selected projects.
 - SHOPIFY whitelist ONLY: Glasy.pl, Ascent, Warmsome, Pixel25, Berg's, Diamandia (keep Diamandia caveat: our version was not released).
-- REACT/NEXT whitelist ONLY: ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de
-- MAGENTO/HYVA whitelist: HUBER SE, Lufed IT, housetipster.com, edycja.pl, fmic.pl, dreamroots.pl, hbsgroup.net, paypair.com, British American Tobacco, catering24.co.uk, solar.com.pl, 3mk.pl
-- Give project name, tech stack, and a clear factual description of the candidate's deliverables.
+- REACT/NEXT preferred evidence: ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de. Additional source-annotated projects in the PRIMARY PROJECT WHITELIST above may be used when more relevant.
+- MAGENTO/HYVA preferred evidence: HUBER SE, Lufed IT, housetipster.com, edycja.pl, fmic.pl, dreamroots.pl, hbsgroup.net, paypair.com, British American Tobacco, catering24.co.uk, solar.com.pl, 3mk.pl. Additional source-annotated projects in the PRIMARY PROJECT WHITELIST above may be used when more relevant.
+- Supplementary portfolio evidence supplies project scope only. Never infer its employer, dates, release status, metrics or founder ownership, and preserve stated limitations.
+- Give project name, a short primary tech stack, and ONE concise factual scope sentence (normally 15–25 words). Preserve release caveats. Do not repeat experience paragraphs.
+- Use Work Experience before Projects, then Technical Skills, Education, Professional Development and Languages. Prioritize commercial experience on page 1 within two readable pages.
 
 ==================================================
 SUMMARY & EXPERIENCE ROUTING
@@ -284,7 +351,7 @@ SUMMARY & EXPERIENCE ROUTING
 ==================================================
 STRICT ANTI-FABRICATION
 ==================================================
-- Ground truth is strictly cv.md. Never invent technologies, backend databases, management roles, or unverified metrics.
+- Employment history and quantified claims must trace to cv.md. Project-only scope may also use the source-annotated verified project catalog, within its stated limitations. Never invent technologies, backend databases, management roles, or unverified metrics.
 - Only verified metrics from cv.md ("16+ production platforms", "~50% organic search traffic", "6+ years commercial experience") may be used.
 
 ==================================================
@@ -296,7 +363,7 @@ Schema:
   "primary_domain": "${classified.primary}",
   "secondary_domains": [${classified.secondary.map((d) => `"${d}"`).join(", ")}],
   "headline": "Target Professional Headline for this vacancy",
-  "summary": "Custom tailored 3-5 line summary",
+  "summary": "Custom tailored 45–70 word summary",
   "skills": [
     { "category": "Category Name", "items": "Comma-separated list of technologies" }
   ],
@@ -357,7 +424,7 @@ function parseTailoringJson(output: string): AiTailorResult {
   if (typeof result.summary !== "string" || !result.summary.trim()) missing.push("summary");
   if (!Array.isArray(result.skills) || result.skills.length === 0 || result.skills.some((item) => !item || typeof item.category !== "string" || typeof item.items !== "string")) missing.push("skills");
   if (!Array.isArray(result.experience) || result.experience.length !== 6 || result.experience.some((item) => !item || typeof item.company !== "string" || typeof item.role !== "string" || typeof item.location !== "string" || typeof item.dates !== "string" || !Array.isArray(item.bullets) || item.bullets.length === 0)) missing.push("experience (exactly 6 complete entries)");
-  if (!Array.isArray(result.projects) || result.projects.length < 2 || result.projects.length > 4 || result.projects.some((item) => !item || typeof item.name !== "string" || typeof item.tech !== "string" || typeof item.description !== "string")) missing.push("projects (2-4 complete entries)");
+  if (!Array.isArray(result.projects) || result.projects.length < 2 || result.projects.length > 6 || result.projects.some((item) => !item || typeof item.name !== "string" || typeof item.tech !== "string" || typeof item.description !== "string")) missing.push("projects (2-6 complete entries)");
   const diff = result.tailoring_diff;
   if (!diff || typeof diff.summary_focus !== "string" || !Array.isArray(diff.skills_promoted) || !Array.isArray(diff.projects_selected) || !Array.isArray(diff.jd_keywords_matched) || typeof diff.experience_emphasis !== "string") missing.push("tailoring_diff");
   if (missing.length > 0) throw new Error(`Invalid or incomplete AI tailoring response: ${missing.join(", ")}`);
@@ -412,17 +479,18 @@ function writeMarkdownCv(payload: any, candidateName: string): string {
   const github = payload.candidate.github?.url || "";
   const portfolio = payload.candidate.portfolio?.url || "";
   markdownCv += `Portfolio: ${portfolio} | GitHub: ${github} | LinkedIn: ${linkedin}\n\n`;
-  markdownCv += `## Professional Summary\n${payload.summary}\n\n`;
-  markdownCv += `## Technical Skills\n`;
-  for (const sk of payload.skills || []) markdownCv += `- **${sk.category}**: ${sk.items}\n`;
+  markdownCv += `${payload.summary}\n\n`;
   markdownCv += `\n## Work Experience\n`;
   for (const exp of payload.experience || []) {
     markdownCv += `### ${exp.company} — ${exp.role}\n*${exp.dates} | ${exp.location}*\n`;
     for (const b of exp.bullets || []) markdownCv += `- ${b}\n`;
     markdownCv += `\n`;
   }
-  markdownCv += `## Key Projects\n`;
-  for (const p of payload.projects || []) markdownCv += `### ${p.name} (${p.tech})\n${p.description}\n\n`;
+  markdownCv += `## Projects\n`;
+  for (const p of payload.projects || []) markdownCv += `### ${p.name}\n${p.tech}\n\n${p.description}\n\n`;
+  markdownCv += `## Technical Skills\n`;
+  for (const sk of payload.skills || []) markdownCv += `- **${sk.category}**: ${sk.items}\n`;
+  markdownCv += `\n`;
   markdownCv += `## Education\n`;
   for (const edu of payload.education || []) markdownCv += `- **${edu.title}** -- ${edu.org} (${edu.year})\n`;
   markdownCv += `\n## Professional Development\n`;
@@ -530,20 +598,18 @@ export async function renderAndValidateTailoredCv(
   pdfPath: string;
   markdownPath: string;
 }> {
-  const baseSlug = jobArtifactSlug(job.company, job.title);
   const candidate = loadDashboardProfile();
   const parsedMaster = loadParsedMasterCv();
-  const candidateSlug = candidateFileSlug(candidate.name);
 
   domainConsistencyValidation(aiResult, job, fullJd);
   const enforced = enforceDomainConsistency(aiResult, job, fullJd);
-  aiResult = enforced.result;
+  aiResult = { ...enforced.result, experience: canonicalTailoredExperience(enforced.result.experience, parsedMaster.experience) };
 
-  // Setup outputs directory: outputs/<compSlug-titleSlug>/
+  // Keep all artifacts in the company/normalized-role folder.
   const outputsBase = path.join(WORKSPACE_ROOT, "outputs");
   if (!fs.existsSync(outputsBase)) fs.mkdirSync(outputsBase, { recursive: true });
 
-  const jobDir = jobArtifactDir(job);
+  const jobDir = jobArtifactDir(job, { create: true });
   if (!fs.existsSync(jobDir)) fs.mkdirSync(jobDir, { recursive: true });
   const operationId = (options.operationId || `op-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "-");
   const stagingDir = path.join(jobDir, ".tmp", operationId);
@@ -573,20 +639,20 @@ export async function renderAndValidateTailoredCv(
       headline: aiResult.headline || candidate.headline
     },
     sections: {
-      summary: "Professional Summary",
+      summary: "",
       skills: "Technical Skills",
       experience: "Work Experience",
-      projects: "Key Projects",
+      projects: "Projects",
       education: "Education",
       certifications: "Professional Development",
       interests: "Languages"
     },
-    summary: aiResult.summary,
+    summary: emphasizeSummaryKeywords(aiResult.summary, `${job.title}\n${fullJd}`, aiResult.tailoring_diff.jd_keywords_matched),
     skills: aiResult.skills,
     experience: aiResult.experience,
     projects: aiResult.projects,
     education: parsedMaster.education,
-    certifications: parsedMaster.certifications,
+    certifications: selectProfessionalDevelopment(parsedMaster.certifications, `${job.title}\n${fullJd}`),
     interests: parsedMaster.languages.length ? [parsedMaster.languages.join(" · ")] : []
   };
 
@@ -598,8 +664,8 @@ export async function renderAndValidateTailoredCv(
 
   const localHtmlPath = path.join(stagingDir, "tailored-cv.html");
   const localPdfPath = path.join(stagingDir, "tailored-cv.pdf");
-  const outputHtmlPath = path.join(WORKSPACE_ROOT, "output", `cv-${candidateSlug}-${baseSlug}.html`);
-  const outputPdfPath = path.join(WORKSPACE_ROOT, "output", `cv-${candidateSlug}-${baseSlug}.pdf`);
+  const outputHtmlPath = path.join(jobDir, "tailored-cv.html");
+  const outputPdfPath = path.join(jobDir, tailoredPdfFilename(candidate.name, job.title));
 
   let pageCount = 0;
   let metadata!: TailorJobMetadata;
@@ -638,7 +704,7 @@ export async function renderAndValidateTailoredCv(
 
     const files = ["job-description.md", "tailored-cv.md", "tailored-cv.html", "tailored-cv.pdf", "tailoring-diff.json", "metadata.json"]
       .map((name) => ({ staged: path.join(stagingDir, name), destination: path.join(jobDir, name) }));
-    files.push({ staged: localHtmlPath, destination: outputHtmlPath }, { staged: localPdfPath, destination: outputPdfPath });
+    files.push({ staged: localPdfPath, destination: outputPdfPath });
     publishGenerationArtifacts(files, operationId, options.signal);
   } finally {
     fs.rmSync(stagingDir, { recursive: true, force: true });

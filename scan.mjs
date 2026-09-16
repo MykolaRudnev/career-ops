@@ -58,6 +58,8 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import * as yaml from 'js-yaml';
 
+import { recordDuplicates } from './discovery/health.mjs';
+import { deduplicateJobs } from './discovery/normalize.mjs';
 import { makeHttpCtx } from './providers/_http.mjs';
 import { buildTrustValidator } from './providers/_trust-validator.mjs';
 import { loadProviders, resolveProvider } from './providers/_registry.mjs';
@@ -2776,6 +2778,7 @@ async function main() {
     });
   }
 
+  const fetchedJobs = [];
   const tasks = targets.map(company => async () => {
     let provider = company._provider;
     // includeUndated is deliberately ALWAYS true, independent of the window.
@@ -2792,7 +2795,7 @@ async function main() {
     // postings on later pages go unfetched. Documented in modes/scan.md; the
     // fix belongs in workday.mjs, where closing it costs the optimisation on
     // every tenant that mixes.
-    const ctx = { ...makeHttpCtx(), sinceMs: earlyStopSinceMs, includeUndated: true };
+    const ctx = { ...makeHttpCtx(), sinceMs: earlyStopSinceMs, includeUndated: true, persist: !dryRun };
     let sourceName = provider.id === 'local-parser' ? 'local-parser' : `${provider.id}-api`;
     try {
       let jobs;
@@ -2818,7 +2821,27 @@ async function main() {
         emptyTargets.push(company.name);
       }
 
-      for (const job of jobs) {
+      fetchedJobs.push(...jobs.map(job => ({...job, _scanCompany:company, _scanSource:sourceName})));
+    } catch (err) {
+      errors.push({
+        company: company.name,
+        error: err.message,
+        kind: classifyFetchError(err),
+      });
+    }
+  });
+
+  await parallelFetch(tasks, CONCURRENCY);
+  const dedupedJobs = deduplicateJobs(fetchedJobs);
+  if (!dryRun) {
+    recordDuplicates(dedupedJobs);
+    mkdirSync(path.join(DATA_ROOT,'data'), {recursive:true});
+    writeFileSync(path.join(DATA_ROOT,'data','discovery-latest.json'), JSON.stringify({generatedAt:new Date().toISOString(),jobs:dedupedJobs.map(j=>Object.fromEntries(Object.entries(j).filter(([k])=>!k.startsWith('_scan'))))}));
+  }
+  totalDupes += fetchedJobs.length - dedupedJobs.length;
+  for (const job of dedupedJobs) {
+    const company = job._scanCompany;
+    const sourceName = job._scanSource;
         // Trust enrichment — runs before filters, never drops
         const trustResult = trustValidator(job);
         job.trustScore = trustResult.score;
@@ -2904,28 +2927,18 @@ async function main() {
         }
         // Mark as seen to avoid intra-scan dupes
         seenUrls.add(dedupUrl);
-        seenCompanyRoles.add(key);
+        // Intra-scan role/location duplicates were resolved before filtering.
         // Tag with the company's careers domain so verify can offer a 404/410
         // rediscovery fallback. A null domain (no careers_url) marks the offer
         // as broad-discovery — ineligible for the fallback, per the issue scope.
         const careersUrlDomain = extractCareersUrlDomain(company.careers_url);
         newOffers.push({
-          ...job,
+          ...Object.fromEntries(Object.entries(job).filter(([k]) => !k.startsWith('_scan'))),
           source: sourceName,
           tracked: Boolean(careersUrlDomain),
           careersUrlDomain,
         });
       }
-    } catch (err) {
-      errors.push({
-        company: company.name,
-        error: err.message,
-        kind: classifyFetchError(err),
-      });
-    }
-  });
-
-  await parallelFetch(tasks, CONCURRENCY);
 
   // 5.5. Optional liveness verification — drop expired and guard-rejected postings
   let verifiedOffers = newOffers;
@@ -3238,7 +3251,8 @@ async function main() {
       added_urls: verifiedOffers.map(offer => offer.url),
       errors: errors.map(({ company, error }) => ({ company, error })),
       dry_run: dryRun,
-    }, errors.length > 0 ? 2 : 0);
+      status: errors.length ? 'DEGRADED' : 'READY',
+    }, 0);
   }
 
   // One-time-ever manifesto note: first successful REAL run only. The state

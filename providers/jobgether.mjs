@@ -1,7 +1,6 @@
 // @ts-check
 /** @typedef {import('./_types.js').Provider} Provider */
 
-import { fetchJsonWithRetry } from './_http.mjs';
 
 const API = 'https://jobgether.com/api/v1/jobs';
 const MAX_PAGES = 10;
@@ -10,15 +9,15 @@ const text = (v) => typeof v === 'string' ? v.trim() : '';
 const epoch = (v) => { const n = Date.parse(v); return Number.isNaN(n) ? undefined : n; };
 
 export function parseJobgetherResponse(json) {
-  if (!json || !Array.isArray(json.jobs)) return [];
+  if (!json || !Array.isArray(json.jobs)) throw new Error('jobgether: unexpected API response');
   return json.jobs.map((j) => {
     let url = '';
     try { const u = new URL(text(j?.url)); if (u.protocol === 'https:' && /(^|\.)jobgether\.com$/.test(u.hostname)) url = u.href; } catch {}
     if (!text(j?.title) || !url) return null;
     return {
       title: text(j.title), url, company: text(j.company), location: text(j.location),
-      postedAt: epoch(j.postedAt), sourceJobId: text(j.id), sourceType: 'aggregator',
-      remoteType: text(j.remote), employmentType: text(j.contractType), seniority: text(j.experience),
+      postedAt: epoch(j.postedAt), sourceJobId: text(j.id), sourceType: 'AGGREGATOR_API',
+      description:text(j.description), applyUrl:text(j.applyUrl), remoteType: text(j.remote), employmentType: text(j.contractType), seniority: text(j.experience),
       salary: text(j.salaryRange), technologies: Array.isArray(j.jobFunctions) ? j.jobFunctions.filter(x => typeof x === 'string') : [],
     };
   }).filter(Boolean);
@@ -40,10 +39,12 @@ export default {
         if (cfg.locations) u.searchParams.set('locations', Array.isArray(cfg.locations) ? cfg.locations.join(',') : String(cfg.locations));
         if (cfg.remoteType) u.searchParams.set('remoteType', String(cfg.remoteType));
         if (cfg.includeHybrid != null) u.searchParams.set('includeHybrid', String(Boolean(cfg.includeHybrid)));
+        for (const key of ['contractType','experience','industries']) if (cfg[key]) u.searchParams.set(key,Array.isArray(cfg[key]) ? cfg[key].join(',') : String(cfg[key]));
         u.searchParams.set('sort', 'date'); u.searchParams.set('limit', '25'); u.searchParams.set('page', String(page));
-        const json = await fetchJsonWithRetry(ctx, u.href, { redirect: 'error' });
+        const json = await ctx.fetchJson(u.href, { redirect: 'error' });
         const rows = parseJobgetherResponse(json);
         for (const row of rows) if (!seen.has(row.url)) { seen.add(row.url); out.push(row); }
+        if (page===maxPages && json?.pagination?.hasMore) ctx.markPartial?.('Jobgether query page budget reached; results are not exhaustive');
         if (!json?.pagination?.hasMore || rows.length === 0) break;
       }
     }
