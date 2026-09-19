@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
+import { normalizeUrl } from "../url-key.mjs";
 import * as yaml from "js-yaml";
 import { getCareerOpsRoot } from "../path-resolver.mjs";
 
@@ -67,7 +69,7 @@ const STRONG_FRONTEND_EVIDENCE_PATTERNS = [
 const OPTIONAL_CUE = /\b(optional|nice[ -]to[ -]have|preferred|bonus|advantage|(?:a|as a) plus|desirable|familiarity|exposure|good to have|w(?:u|ü)nschenswert|von vorteil|basic|fundamental(?:s)?)\b|mile\s+widziane|dodatkowym\s+atutem|atutem\s+b(?:e|ę)dzie|dobrze,?\s+je(?:s|ś)li|opcjonalnie|podstawowa\s+znajomo(?:s|ś)(?:ć|c)|znajomo(?:s|ś)(?:ć|c)\s+podstaw|podstawy|familiar\s+with|awareness\s+of/i;
 const MANDATORY_CUE = /\b(must|required|requirements?|mandatory|essential|need(?:ed)?|at least|minimum|proficien(?:t|cy)|strong experience|expertise|commercial experience|you have|we expect|wymagan|bardzo dobra znajomość)\b/i;
 const OPTIONAL_SECTION_HEADING = /^(?:optional|nice[ -]to[ -]have|preferred(?:\s+skills|\s+qualifications|\s+only)?|bonus(?:\s+points)?|good[ -]to[ -]have|advantage|desirable|additional\s+(?:assets|skills)|mile\s+widziane|dodatkowym\s+atutem|atutem\s+b(?:e|ę)dzie|dobrze,?\s+je(?:s|ś)li|opcjonalnie|w(?:u|ü)nschenswert|von\s+vorteil)\b/i;
-const SECTION_HEADING = /^(?:(?:core\s+)?mandatory\s+)?(?:requirements?|qualifications?|responsibilities?|what you(?:'|’)ll do|your role|skills?|technologies?|wymagania|obowi(?:ą|a)zki|zakres obowi(?:ą|a)zk(?:o|ó)w|do(?:s|ś)wiadczenie|umiej(?:ę|e)tno(?:s|ś)ci|mile\s+widziane|dodatkowym\s+atutem|atutem\s+b(?:e|ę)dzie|opcjonalnie|w(?:u|ü)nschenswert|von\s+vorteil)\b/i;
+const SECTION_HEADING = /^(?:(?:core\s+)?mandatory\s+)?(?:required|requirements?|qualifications?|responsibilities?|what you(?:'|’)ll do|your role|skills?|technologies?|wymagania|obowi(?:ą|a)zki|zakres obowi(?:ą|a)zk(?:o|ó)w|do(?:s|ś)wiadczenie|umiej(?:ę|e)tno(?:s|ś)ci|mile\s+widziane|dodatkowym\s+atutem|atutem\s+b(?:e|ę)dzie|opcjonalnie|w(?:u|ü)nschenswert|von\s+vorteil)\b/i;
 const RESPONSIBILITY_CUE = /\b(build|develop|design|own|ownership|architect|maintain|deliver|implement|responsib|services?|apis?|microservices?|server[ -]?side|backend architecture|backend systems?)\b|(?:rozw(?:o|ó)j|tworzenie|implementacja|projektowanie|utrzymanie|budowa|w(?:d|y)ro(?:z|ż)enie|tworzenie)\s+(?:backendu|us(?:l|ł)ug backendowych|api|mikroserwis(?:o|ó)w)/i;
 const BACKEND_OWNERSHIP_CUE = /\b(build|develop|design|own|ownership|architect|maintain|implement|create|write|deliver|responsib|services?|apis?|microservices?|server[ -]?side|backend architecture|backend systems?)\b|(?:rozw(?:o|ó)j|tworzenie|implementacja|projektowanie|utrzymanie|budowa|w(?:d|y)ro(?:z|ż)enie)\s+(?:backendu|us(?:l|ł)ug backendowych|api|mikroserwis(?:o|ó)w)/i;
 const BACKEND_COLLABORATION_CUE = /\b(collaborat(?:e|ion)|cooperat(?:e|ion)|work(?:s|ing)?\s+with|coordinate|support|integrat(?:e|ion)\s+with|consum(?:e|ing)|communicat(?:e|ion)\s+with)\b|wsp(?:o|ó)(?:l|ł)prac(?:a|y|uj)|integracj(?:a|e|i)\s+(?:z|ze)|komunikacj(?:a|e)\s+z|wsp(?:o|ó)(?:l|ł)prac(?:a|y|uj)\s+z/i;
@@ -97,7 +99,7 @@ function clauseEntries(text) {
     const trimmed = line.trim();
     if (!trimmed) return [];
     const headingText = trimmed.replace(/^[#>*\-\s]+/, "").replace(/[:：].*$/, "").trim();
-    if (/^(?:Twój wkład|Realizację projektu|What you[’']ll|What we[’']re|Why You’ll|You're ideal)/i.test(headingText)) optionalSection = false;
+    if (/^(?:Twój wkład|Realizację projektu|What you[’']ll|What we[’']re|What we expect|What we offer|Tech stack|About us|How to apply|Why You’ll|You're ideal)/i.test(headingText)) optionalSection = false;
     if (/^It is a strong plus/i.test(headingText)) optionalSection = true;
     if ((SECTION_HEADING.test(headingText) && !/^(?:doświadczenie|umiejętności)\s+\S/i.test(headingText)) || OPTIONAL_SECTION_HEADING.test(headingText)) {
       optionalSection = OPTIONAL_SECTION_HEADING.test(headingText);
@@ -177,6 +179,7 @@ function detectLanguages(title, description) {
       const locationOnly = !titleFluent && !clauseFluent && !signal.mandatory;
       return {
         name,
+        pattern,
         mandatory: (signal.mandatory && !signal.optionalOnly) || titleFluent || clauseFluent,
         optionalOnly: signal.optionalOnly && !titleFluent,
         locationOnly
@@ -194,10 +197,37 @@ function stackBits(textWithoutNative) {
   };
 }
 
-export function sanitizeJobDescription(text) {
-  const raw = String(text || "");
-  const cut = raw.search(/similar offers|recommended by just join|oferty podobne/i);
+export function sanitizeJobDescription(text, url = "") {
+  let raw = String(text || "");
+  if (/^https?:\/\/(?:www\.)?justjoin\.it\//i.test(url)) {
+    // Migrate old full-page captures without admitting company/sidebar content.
+    const start = raw.search(/Job description/i);
+    if (start >= 0) raw = raw.slice(start + "Job description".length);
+    const end = raw.search(/Office location|About the company|Summary of the offer/i);
+    if (end >= 0) raw = raw.slice(0, end);
+  }
+  const cut = raw.search(/similar offers|recommended (?:by just join|offers?)|oferty podobne/i);
   return (cut === -1 ? raw : raw.slice(0, cut)).trim();
+}
+
+export function jobMatchInputKey(job, description) {
+  return JSON.stringify([job.id || "", normalizeUrl(job.url || ""),
+    createHash("sha256").update(sanitizeJobDescription(description, job.url)).digest("hex"),
+    job.title, job.location, job.extra, jobMatchPolicyKey()]);
+}
+
+// Final display gate: a label cannot survive on a cached/inferred claim alone.
+export function validateRequirementEvidence(result, job, description) {
+  const text = `${job.title || ""}\n${sanitizeJobDescription(description || job.extra, job.url)}`;
+  const supported = new Set((result.currentJobEvidence || [])
+    .filter(item => item.evidence && text.includes(item.evidence)).map(item => item.skill));
+  const backed = skills => skills?.length > 0 && skills.every(skill => supported.has(skill));
+  return { ...result,
+    gaps: (result.gaps || []).filter(gap => backed(result.gapRequirements?.[gap])),
+    missingMandatorySkills: (result.missingMandatorySkills || []).filter(skill => supported.has(skill)),
+    mandatorySkills: (result.mandatorySkills || []).filter(skill => supported.has(skill)),
+    optionalSkills: (result.optionalSkills || []).filter(skill => supported.has(skill))
+  };
 }
 
 export function formatMatchReason(classification, reason, compatibilityPercent) {
@@ -211,8 +241,8 @@ export function formatMatchReason(classification, reason, compatibilityPercent) 
  */
 export function analyzeJobMatch(job, fullDescription = "") {
   const title = String(job?.title || "");
-  const fallback = [job?.company, job?.location, job?.extra].filter(Boolean).join(". ");
-  const description = sanitizeJobDescription(fullDescription || fallback);
+  const fallback = String(job?.extra || "");
+  const description = sanitizeJobDescription(fullDescription || fallback, job?.url);
   const allText = `${title}\n${description}`;
   const titleMasked = maskReactNative(title);
   const allMasked = maskReactNative(allText);
@@ -321,6 +351,28 @@ export function analyzeJobMatch(job, fullDescription = "") {
 
   const strengths = [];
   const gaps = [];
+  const currentJobEvidence = [];
+  const gapRequirements = {};
+  const retain = (skill, patterns) => {
+    if (patterns.some(p => p.test(title))) currentJobEvidence.push({ skill, evidence: title, section: "title", source: "job-description" });
+    for (const entry of clauseEntries(description)) {
+      if (!patterns.some(p => p.test(entry.text))) continue;
+      // Clause normalization can restore headings; retain only verbatim evidence.
+      const evidence = entry.text.replace(/:$/, "").trim();
+      if (!description.includes(evidence)) continue;
+      currentJobEvidence.push({ skill, evidence,
+        section: entry.optionalSection || OPTIONAL_CUE.test(evidence) ? "preferred" : MANDATORY_CUE.test(evidence) ? "required" : RESPONSIBILITY_CUE.test(evidence) ? "responsibilities" : "description",
+        source: "job-description" });
+    }
+  };
+  const addGap = (label, requirements) => { gaps.push(label); gapRequirements[label] = requirements; };
+  BACKEND_STACKS.forEach(stack => retain(stack.id, stack.patterns));
+  retain("Native mobile development", MOBILE_CORE);
+  languageSignals.forEach(signal => retain(`${signal.name} language`, [signal.pattern]));
+  if (backendDominance) {
+    const evidence = backendOwnershipSignals[0] || (pureBackendTitle ? title : description);
+    if (evidence) currentJobEvidence.push({ skill: "Backend ownership", evidence, section: "responsibilities", source: "job-description" });
+  }
   const missingMandatorySkills = [];
   if (bits.react) strengths.push("React web");
   if (bits.next) strengths.push("Next.js");
@@ -331,22 +383,24 @@ export function analyzeJobMatch(job, fullDescription = "") {
   if (leadership) strengths.push("Hands-on technical leadership");
 
   if (mobileDominance) {
-    gaps.push("React Native / mobile-first responsibilities");
+    addGap("React Native / mobile-first responsibilities", ["Native mobile development"]);
     missingMandatorySkills.push("Native mobile development");
   }
   if (mandatoryBackend.length) {
     const names = mandatoryBackend.map((stack) => stack.id);
-    gaps.push(`${names.join(" + ")} backend mandatory`);
+    addGap(`${names.join(" + ")} backend mandatory`, names);
     missingMandatorySkills.push(...names);
   }
-  if (backendDominance) gaps.push("Backend ownership is the primary responsibility");
+  if (backendDominance) addGap("Backend ownership is the primary responsibility", ["Backend ownership"]);
   if (languageSignals.length) {
     const names = languageSignals.map((signal) => signal.name);
-    gaps.push(`${names.join(" / ")} mandatory`);
+    addGap(`${names.join(" / ")} mandatory`, names.map(name => `${name} language`));
     missingMandatorySkills.push(...names.map((name) => `${name} language`));
   }
-  if (backendOptionalCount > 0 && backendSignals.length > 0) {
-    gaps.push(`Preferred ${backendSignals.map((stack) => stack.id).join(" / ")} backend knowledge`);
+  const optionalBackend = backendSignals.filter(stack => stack.optionalOnly);
+  if (optionalBackend.length) {
+    const names = optionalBackend.map(stack => stack.id);
+    addGap(`Preferred ${names.join(" / ")} backend knowledge`, names);
   }
 
   let classification = "POSSIBLE MATCH";
@@ -514,6 +568,8 @@ export function analyzeJobMatch(job, fullDescription = "") {
     bits.react ? "React" : "",
     bits.next ? "Next.js" : "",
     bits.ts ? "TypeScript" : "",
+    /\bjavascript\b/i.test(allText) ? "JavaScript" : "",
+    /\brest\s+apis?\b/i.test(allText) ? "REST API" : "",
     bits.node ? "Node.js" : "",
     ...backendSignals.map((stack) => stack.id),
     mobileDominance ? "Mobile" : ""
@@ -526,20 +582,31 @@ export function analyzeJobMatch(job, fullDescription = "") {
       : backendDominance ? "BACKEND" : "GENERAL";
   const skillSignals = [
     ["React", /\breact(?:\.js|js)?\b/i], ["Next.js", /\bnext\.?js?\b/i], ["TypeScript", /\btypescript\b/i],
+    ["Node.js", /\bnode\.?(?:js)?\b|\bnest\.?(?:js)?\b/i],
+    ["JavaScript", /\bjavascript\b/i], ["HTML", /\bhtml\b/i], ["CSS", /\bcss\b/i],
+    ["Embedded React / external-page integration", /embedding React components|embedded/i],
+    ["English C1", /\bEnglish\s+C1\b/i],
+    ["Commercial React experience", /\d+\+?\s+years? of commercial React experience/i],
+    ["AWS", /\baws\b/i], ["Authentication across domains", /authentication across domains/i],
     ["WCAG / accessibility", /wcag|wai-aria|accessibilit|dost(?:e|ę)pno(?:s|ś)(?:c|ć)/i],
-    ["Core Web Vitals", /core web vitals/i], ["REST API", /rest\s+api|api integration/i],
+    ["Core Web Vitals", /core web vitals/i], ["REST API", /rest\s+apis?\b|api integration/i],
     ["Design Systems", /design system|component library/i], ["Playwright", /playwright/i],
     ["PHP", /\bphp\b/i], ["Go", /\b(?:golang|go)\b/i], ["Docker", /\bdocker\b/i],
     ["CI/CD", /\bci\/cd\b|continuous integration/i], ["Figma / UX", /\bfigma\b|ux\/?ui/i],
-    ["SEO", /\bseo\b/i], ["AI-assisted development", /ai-assisted|ai assisted|llm|coding assistant|ai agents?/i]
+    ["SEO", /\bseo\b/i], ["AI-assisted development", /ai-assisted|ai assisted|ai workflows|llm|coding assistant|ai agents?/i]
   ];
+  skillSignals.forEach(([skill, pattern]) => retain(skill, [pattern]));
   const skillState = (pattern) => requirementSignal(title, description, [pattern]);
   const mandatorySkills = unique(skillSignals.filter(([, pattern]) => {
     const state = skillState(pattern); return state.mandatory && !state.optionalOnly;
   }).map(([name]) => name));
   const optionalSkills = unique(skillSignals.filter(([, pattern]) => skillState(pattern).optionalOnly).map(([name]) => name));
 
-  return {
+  return validateRequirementEvidence({
+    currentJobEvidence,
+    gapRequirements,
+    backendOwnership,
+    backendRequirement: mandatoryBackend.length > 0 || backendOwnership,
     fitScore: Math.min(5, fitScore),
     compatibilityPercent,
     matchClassification: classification,
@@ -582,9 +649,9 @@ export function analyzeJobMatch(job, fullDescription = "") {
       frontendPct,
       mandatoryBackend: mandatoryBackend.map((stack) => stack.id),
       mandatoryLanguages: languageSignals.map((signal) => signal.name),
-      requiredYears: unique([...allText.matchAll(/\b(?:minimum|min\.?|at\s+least)?\s*(\d{1,2})\+?\s+years?(?:\s+of)?\s+(?:commercial |professional |relevant )?experience\b/gi)].map((match) => Number(match[1]))).sort((a, b) => b - a)
+      requiredYears: unique([...allText.matchAll(/\b(?:minimum|min\.?|at\s+least)?\s*(\d{1,2})\+?\s+years?(?:\s+of)?\s+(?:commercial |professional |relevant )?(?:React |TypeScript )?experience\b/gi)].map((match) => Number(match[1]))).sort((a, b) => b - a)
     },
     evaluatedFrom: hasFullJd ? "full-jd" : "pipeline-summary",
     evaluatedAt: new Date().toISOString()
-  };
+  }, job, description);
 }

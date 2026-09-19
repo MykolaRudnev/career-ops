@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+import { useApplicationAutomation } from "./ApplicationAutomation";
 import { DiscoveryHealth } from "./DiscoveryHealth";
 import {
   fetchStatus,
@@ -15,6 +16,8 @@ import {
   generateTailoredCv,
   generateCoverLetter,
   fetchCoverLetter,
+  fetchJobArtifacts,
+  type JobArtifacts,
   generateMasterCv,
   updateJobStatus,
   updateJobBid,
@@ -85,6 +88,7 @@ export function App() {
   const [modalBidValue, setModalBidValue] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [modelFilter, setModelFilter] = useState<"ALL" | "Remote" | "Hybrid" | "Office">("ALL");
+  const [minimumScore, setMinimumScore] = useState(0);
   const [countryFilter, setCountryFilter] = useState("ALL");
   const [matchCategory, setMatchCategory] = useState<
     "ALL" | "BEST_MATCH" | "REACT_NEXT" | "SHOPIFY" | "MAGENTO" | "NODE" | "SENIOR_LEAD"
@@ -103,6 +107,8 @@ export function App() {
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [operations, setOperations] = useState<OperationRecord[]>([]);
   const [cancellingOperationId, setCancellingOperationId] = useState<string | null>(null);
+  const [jobArtifacts, setJobArtifacts] = useState<(JobArtifacts & { jobUrl: string }) | null>(null);
+  const [artifactError, setArtifactError] = useState("");
   const [coverJob, setCoverJob] = useState<PipelineJob | null>(null);
   const [coverArtifact, setCoverArtifact] = useState<CoverLetterArtifact | null>(null);
 
@@ -145,7 +151,7 @@ export function App() {
           const isActive = nextOperations.some((item) => ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
           if (wasActive && !isActive) {
             const latest = nextOperations[0];
-            const label = latest?.type === "COVER_LETTER" ? "Cover Letter" : "Tailored CV";
+            const label = latest?.type === "APPLICATION" ? "Application queue" : latest?.type === "COVER_LETTER" ? "Cover Letter" : "Tailored CV";
             const message = latest?.status === "COMPLETED"
               ? `${label} is READY.`
               : latest?.status === "CANCELLED"
@@ -306,6 +312,7 @@ export function App() {
   };
 
   const handleCoverLetter = async (job: PipelineJob, regenerate = false) => {
+    setCoverArtifact(null);
     setCoverJob(job);
     try {
       if (!regenerate) {
@@ -327,8 +334,20 @@ export function App() {
   const handleSelectJob = (job: PipelineJob) => {
     setSelectedJob(job);
     setCoverArtifact(null);
-    void fetchCoverLetter(job).then(setCoverArtifact).catch(() => {});
+    setCoverJob(null);
   };
+
+  const artifactRefresh = operations.filter(op => ["TAILORED_CV", "COVER_LETTER", "APPLICATION"].includes(op.type) && op.status === "COMPLETED").map(op => op.operationId).join(",");
+  useEffect(() => {
+    if (!selectedJob) return;
+    let cancelled = false;
+    setArtifactError("");
+    void fetchJobArtifacts(selectedJob).then(artifacts => {
+      if (!cancelled) setJobArtifacts({ ...artifacts, jobUrl: selectedJob.url });
+    }).catch(error => { if (!cancelled) setArtifactError(error.message); });
+    return () => { cancelled = true; };
+  }, [selectedJob?.url, artifactRefresh, coverArtifact?.metadata.editedAt]);
+  const selectedArtifacts = jobArtifacts?.jobUrl === selectedJob?.url ? jobArtifacts : null;
 
   const handleCancelOperation = async (operationId: string) => {
     setCancellingOperationId(operationId);
@@ -460,8 +479,15 @@ export function App() {
       matchCat = t.includes("senior") || t.includes("lead") || t.includes("principal") || t.includes("staff");
     }
 
-    return matchSearch && matchModel && matchCountry && matchCat;
+    return matchSearch && matchModel && matchCountry && matchCat && (job.fitScore || 0) >= minimumScore;
   }).sort((a, b) => (b.compatibilityPercent || 0) - (a.compatibilityPercent || 0));
+
+  const visibleJobs = filteredJobs.slice(0, 100);
+  const automation = useApplicationAutomation({
+    busy: Boolean(activeOperation), providerId: selectedProviderId, model: selectedModel,
+    onOperation: (operation) => setOperations(current => [operation, ...current]),
+    cancel: (id) => { void handleCancelOperation(id); }, notify: showNotification
+  });
 
   const handleAppliedSort = (col: AppliedSortColumn) => {
     if (appliedSortColumn === col) {
@@ -577,7 +603,7 @@ export function App() {
     });
 
   return (
-    <div className="dashboard">
+    <div className={`dashboard ${selectedJob ? "has-job-details" : ""}`}>
       {/* Header */}
       <header className="header">
         <div className="header-title-group">
@@ -813,7 +839,7 @@ export function App() {
       </div>}
 
       {/* SECTION 1: SEARCH & PIPELINE */}
-      {activeTab === "pipeline" && <div className="card">
+      {activeTab === "pipeline" && <div className={`card pipeline-card ${pipelineView === "pending" ? "pipeline-grid" : ""}`}>
         <div className="card-header">
           <div className="card-title">
             <Search size={18} color="#06b6d4" /> Section 1 — Search & Pipeline
@@ -1005,6 +1031,13 @@ export function App() {
           />
         )}
 
+        {pipelineView === "pending" && <>
+          <label className="score-filter">Minimum score <select value={minimumScore} onChange={e => setMinimumScore(Number(e.target.value))}>
+            {[0, 3, 3.5, 4, 4.5].map(score => <option key={score} value={score}>{score === 0 ? 'All scores' : `${score}+`}</option>)}
+          </select></label>
+          {automation.toolbar(visibleJobs, filteredJobs.length)}
+        </>}
+        {automation.history}
         {/* Pipeline Table */}
         <div className="table-container" style={{ display: pipelineView === "manual" ? "none" : "block" }}>
           <table className="jobs-table">
@@ -1028,7 +1061,7 @@ export function App() {
                   </td>
                 </tr>
               ) : (
-                filteredJobs.slice(0, 100).map((job) => {
+                visibleJobs.map((job) => {
                   let scoreClass = "score-none";
                   if (job.fitScore) {
                     if (job.fitScore >= 4.0) scoreClass = "score-high";
@@ -1144,6 +1177,7 @@ export function App() {
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: "flex", gap: "6px" }}>
+                          {automation.button(job)}
                           {job.url.startsWith("http") && <button className="btn btn-outline btn-sm" title="Open external job URL" onClick={() => handleOpen("url", job.url)}><ExternalLink size={12} /></button>}
                           <button
                             className="btn btn-secondary btn-sm"
@@ -1380,8 +1414,8 @@ export function App() {
 
       {/* SECTION 4: JOB DETAILS MODAL */}
       {selectedJob && (
-        <div className="modal-overlay" onClick={() => setSelectedJob(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay job-details-overlay" onClick={() => setSelectedJob(null)}>
+          <div className="modal-content" role="dialog" aria-label="Job details" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
                 <h2 className="modal-title">{selectedJob.title}</h2>
@@ -1390,6 +1424,7 @@ export function App() {
               <button
                 className="btn btn-outline btn-sm"
                 onClick={() => setSelectedJob(null)}
+                aria-label="Close job details"
               >
                 <X size={16} />
               </button>
@@ -1558,8 +1593,15 @@ export function App() {
             </div>
 
             {/* Action Bar */}
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: "16px" }}>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <div className="job-actions">
+              <div className="job-apply-action">{automation.button(selectedJob)}</div>
+              <div className="job-artifact-status" aria-live="polite">
+                {artifactError || (selectedArtifacts
+                  ? `CV: ${selectedArtifacts.pdfPath ? "ready" : "not generated"} · Cover letter: ${selectedArtifacts.coverReady ? "ready" : "not generated"}`
+                  : "Checking artifacts…")}
+                {selectedArtifacts?.filename && <small title={selectedArtifacts.filename}>{selectedArtifacts.filename}</small>}
+              </div>
+              <div className="job-generate-actions">
                 <button
                   className="btn btn-primary"
                   disabled={Boolean(activeOperation)}
@@ -1576,19 +1618,27 @@ export function App() {
                 <button
                   className="btn btn-secondary"
                   disabled={Boolean(activeOperation)}
-                  onClick={() => void handleCoverLetter(selectedJob, Boolean(coverArtifact))}
+                  onClick={() => void handleCoverLetter(selectedJob, Boolean(selectedArtifacts?.coverReady))}
                 >
                   {selectedCoverOperation ? <span className="spinner" /> : <FileText size={14} />}
-                  {selectedCoverOperation ? selectedCoverOperation.currentStage : coverArtifact ? "Regenerate Cover Letter" : "Generate Cover Letter"}
+                  {selectedCoverOperation ? selectedCoverOperation.currentStage : selectedArtifacts?.coverReady ? "Regenerate Cover Letter" : "Generate Cover Letter"}
                 </button>
                 {selectedCoverOperation && (
                   <button className="btn btn-danger" disabled={selectedCoverOperation.status === "CANCELLING" || cancellingOperationId === selectedCoverOperation.operationId} onClick={() => void handleCancelOperation(selectedCoverOperation.operationId)}>
                     {selectedCoverOperation.status === "CANCELLING" || cancellingOperationId === selectedCoverOperation.operationId ? "Cancelling..." : "Cancel"}
                   </button>
                 )}
-                {coverArtifact && !selectedCoverOperation && (
-                  <button className="btn btn-outline" onClick={() => { setCoverJob(selectedJob); }}>View Cover Letter</button>
+                {selectedArtifacts?.coverReady && !selectedCoverOperation && (
+                  <button className="btn btn-outline" onClick={() => void handleCoverLetter(selectedJob)}>View Cover Letter</button>
                 )}
+              </div>
+              <div className="job-file-actions">
+                <button className="btn btn-outline" disabled={!selectedArtifacts?.pdfPath}
+                  title={selectedArtifacts?.filename || "Generate a tailored CV first"}
+                  onClick={() => void handleOpen("tailored-cv", selectedArtifacts!.pdfPath!)}><FileText size={14} /> Open CV</button>
+                <button className="btn btn-outline" disabled={!selectedArtifacts?.folderPath}
+                  title={selectedArtifacts?.folderPath || "Generate a CV or cover letter to create this job’s folder"}
+                  onClick={() => void handleOpen("cv-folder", selectedArtifacts!.folderPath!)}><Folder size={14} /> Open Folder</button>
                 {selectedJob.hasTailoredCv && (
                   <button
                     className="btn btn-outline"
@@ -1606,7 +1656,7 @@ export function App() {
                 </button>}
               </div>
 
-              <div style={{ display: "flex", gap: "8px" }}>
+              <div className="job-status-actions">
                 <button
                   className="btn btn-outline btn-sm"
                   onClick={() => handleStatusChange(selectedJob.url, "reviewed")}

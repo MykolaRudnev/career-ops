@@ -11,15 +11,15 @@ import {
 } from "./aiTailor.ts";
 import { buildSimpleTailorResult } from "./cvFromMaster.mjs";
 import { DomainValidationError } from "./cvDomainRouting.mjs";
-import { analyzeJobMatch, jobMatchPolicyKey } from "./jobMatch.mjs";
+import { analyzeJobMatch, jobMatchInputKey, validateRequirementEvidence, sanitizeJobDescription } from "./jobMatch.mjs";
 import { operationManager, type OperationRecord } from "./operations.ts";
 import { OperationCancelledError, ProcessTimeoutError } from "./process.ts";
 import { generateCoverLetter as generateCoverArtifact } from "./coverLetter.ts";
 import { artifactDirectories } from "./jobArtifacts.ts";
 
-const JOB_MATCH_VERSION = 4;
+const JOB_MATCH_VERSION = 5;
 
-function findLocalJobDescription(job: { url?: string; company?: string; title?: string; description?: string }): string {
+function findLocalJobDescription(job: { url?: string; company?: string; title?: string; description?: string }, strictIdentity = false): string {
   if (String(job.description || "").trim().length >= 40) return String(job.description).trim();
   const outputsDir = path.join(WORKSPACE_ROOT, "outputs");
   if (!fs.existsSync(outputsDir)) return "";
@@ -35,7 +35,7 @@ function findLocalJobDescription(job: { url?: string; company?: string; title?: 
       try {
         const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
         matched = Boolean(needleUrl && meta.url === needleUrl)
-          || (String(meta.company || "").toLowerCase() === needleCompany && String(meta.role || meta.title || "").toLowerCase() === needleTitle);
+          || (!strictIdentity && String(meta.company || "").toLowerCase() === needleCompany && String(meta.role || meta.title || "").toLowerCase() === needleTitle);
       } catch {
         matched = false;
       }
@@ -94,12 +94,14 @@ class CareerOpsManager {
     }
   }
 
-  public getEvaluationForDisplay(job: { url: string; company: string; title: string; location: string; extra?: string }) {
+  public getEvaluationForDisplay(job: { url: string; company: string; title: string; location: string; extra?: string; id?: string }) {
     const cached = this.evalCache.get(job.url);
-    const localJd = findLocalJobDescription(job);
-    const description = localJd || cached?.matchDescription || "";
-    const matchInputKey = JSON.stringify([job.title, job.location, job.extra, jobMatchPolicyKey()]);
-    if (cached?.matchVersion === JOB_MATCH_VERSION && cached?.matchDescription === description && cached?.matchInputKey === matchInputKey) return cached;
+    const localJd = findLocalJobDescription(job, true);
+    const reusable = cached?.matchVersion === JOB_MATCH_VERSION
+      && cached?.matchInputKey === jobMatchInputKey(job, cached?.matchDescription || "");
+    const description = sanitizeJobDescription(localJd || (reusable ? cached.matchDescription : ""), job.url);
+    const matchInputKey = jobMatchInputKey(job, description);
+    if (reusable && cached.matchInputKey === matchInputKey) return validateRequirementEvidence(cached, job, description);
     const result = { ...analyzeJobMatch(job, description), matchDescription: description, matchInputKey, matchVersion: JOB_MATCH_VERSION };
     this.evalCache.set(job.url, result);
     return result;
@@ -208,16 +210,16 @@ class CareerOpsManager {
     if (!force && cached?.matchVersion === JOB_MATCH_VERSION && cached?.evaluatedFrom === "full-jd") return cached;
 
     const fallback = `${job.title} at ${job.company}. Location: ${job.location || "Unknown"}. ${job.extra || ""}`;
-    const localJd = findLocalJobDescription(job);
+    const localJd = force ? "" : findLocalJobDescription(job, true);
     const { text: fullJd, source: jdSource } = localJd
       ? { text: localJd, source: "local-output" as const }
       : await getFullJobDescription(job.url, fallback);
-    const usableJd = jdSource !== "fallback" && fullJd && fullJd.trim().length >= 80 ? fullJd : "";
+    const usableJd = jdSource !== "fallback" && fullJd && fullJd.trim().length >= 80 ? sanitizeJobDescription(fullJd, job.url) : "";
     const result = {
       ...analyzeJobMatch(job, usableJd),
       jdSource: usableJd ? jdSource : "fallback",
       matchDescription: usableJd,
-      matchInputKey: JSON.stringify([job.title, job.location, job.extra, jobMatchPolicyKey()]),
+      matchInputKey: jobMatchInputKey(job, usableJd),
       matchVersion: JOB_MATCH_VERSION
     };
 
@@ -227,6 +229,7 @@ class CareerOpsManager {
   }
 
   public startTailoredCv(job: PipelineJob, options: { providerId?: string; model?: string } = {}): OperationRecord {
+    if (operationManager.list().some(op => op.type === "APPLICATION" && ["PENDING", "RUNNING", "CANCELLING"].includes(op.status))) throw new Error("Application queue is active; cancel it before starting another generation");
     if (this.currentOp) throw new Error(`Another operation is currently running: ${this.currentOp.name}`);
     const operation = operationManager.create(job.id);
     operationManager.run(operation.operationId, async ({ signal, updateStage }) => {
@@ -238,6 +241,7 @@ class CareerOpsManager {
   }
 
   public startCoverLetter(job: PipelineJob, options: { providerId?: string; model?: string } = {}): OperationRecord {
+    if (operationManager.list().some(op => op.type === "APPLICATION" && ["PENDING", "RUNNING", "CANCELLING"].includes(op.status))) throw new Error("Application queue is active; cancel it before starting another generation");
     if (this.currentOp) throw new Error(`Another operation is currently running: ${this.currentOp.name}`);
     const operation = operationManager.create(job.id, "COVER_LETTER");
     operationManager.run(operation.operationId, async ({ signal, updateStage }) => {
@@ -288,8 +292,7 @@ class CareerOpsManager {
 
   public async rerankJobs(jobs: Array<{ url: string; company: string; title: string; location: string; extra?: string }>, fullJdLimit = 60) {
     const preliminary = jobs.map((job) => {
-      const localJd = findLocalJobDescription(job) || this.evalCache.get(job.url)?.matchDescription || "";
-      return { job, evaluation: { ...analyzeJobMatch(job, localJd), matchDescription: localJd } };
+      return { job, evaluation: this.getEvaluationForDisplay(job) };
     });
     for (const { job, evaluation } of preliminary) {
       this.evalCache.set(job.url, { ...evaluation, matchVersion: JOB_MATCH_VERSION });
@@ -322,7 +325,7 @@ class CareerOpsManager {
   /**
    * Generate tailored CV using Career-Ops standard pipeline
    */
-  public async generateTailoredCv(job: PipelineJob, options?: { providerId?: string; model?: string }): Promise<{
+  public async generateTailoredCv(job: PipelineJob, options?: { providerId?: string; model?: string; fullJd?: string }): Promise<{
     success: boolean;
     htmlPath: string;
     pdfPath: string;
@@ -341,12 +344,12 @@ class CareerOpsManager {
   }>;
   public async generateTailoredCv(
     job: PipelineJob,
-    options: { providerId?: string; model?: string },
+    options: { providerId?: string; model?: string; fullJd?: string },
     operation: { operationId: string; signal: AbortSignal; updateStage: (stage: string) => void }
   ): Promise<any>;
   public async generateTailoredCv(
     job: PipelineJob,
-    options: { providerId?: string; model?: string } = {},
+    options: { providerId?: string; model?: string; fullJd?: string } = {},
     operation?: { operationId: string; signal: AbortSignal; updateStage: (stage: string) => void }
   ): Promise<any> {
     if (!operation && this.currentOp) throw new Error(`Another operation is currently running: ${this.currentOp.name}`);
@@ -362,7 +365,7 @@ class CareerOpsManager {
     try {
       stage("[1/5] Loading Job Description");
       const fallbackText = `${job.title} at ${job.company}. Location: ${job.location || "Remote"}. ${job.extra || ""}`;
-      const localJd = findLocalJobDescription(job);
+      const localJd = options.fullJd || findLocalJobDescription(job);
       const { text: fullJd, source: jdSource } = localJd
         ? { text: localJd, source: "manual/local" as const }
         : await getFullJobDescription(job.url, fallbackText, operation?.signal);

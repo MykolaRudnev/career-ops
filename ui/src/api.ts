@@ -54,7 +54,7 @@ export type OperationStatus = "PENDING" | "RUNNING" | "CANCELLING" | "CANCELLED"
 export interface OperationRecord {
   operationId: string;
   jobId: string;
-  type: "TAILORED_CV" | "COVER_LETTER";
+  type: "TAILORED_CV" | "COVER_LETTER" | "APPLICATION";
   status: OperationStatus;
   startedAt: string;
   updatedAt: string;
@@ -94,6 +94,9 @@ export interface CoverLetterArtifact {
     basedOnTailoredCv: boolean;
     tailoredCvModifiedAt: string | null;
     wordCount: number;
+    characterCount?: number;
+    format?: "short-form";
+    url?: string;
     factValidation: "PASS" | "WARN";
     editedAt?: string;
     editCount?: number;
@@ -281,7 +284,7 @@ export async function saveCoverLetter(job: PipelineJob, content: string): Promis
 }
 
 export function coverLetterDownloadUrl(job: PipelineJob): string {
-  return `${API_BASE}/api/cover-letter/download?company=${encodeURIComponent(job.company)}&title=${encodeURIComponent(job.title)}`;
+  return `${API_BASE}/api/cover-letter/download?company=${encodeURIComponent(job.company)}&title=${encodeURIComponent(job.title)}&url=${encodeURIComponent(job.url)}`;
 }
 
 export async function fetchApplicationCoverContext(job: PipelineJob, maxChars = 0): Promise<string> {
@@ -451,4 +454,35 @@ export async function fetchTailoringDiff(company: string, title?: string): Promi
   if (!res.ok) return null;
   const data = await res.json();
   return data.data || null;
+}
+
+export async function fetchApplicationHistory(): Promise<any[]> {
+  const res = await fetch('/api/applications');
+  if (!res.ok) throw new Error('Could not load application history');
+  return (await res.json()).attempts;
+}
+export async function startApplications(jobs: PipelineJob[], mode: 'DRY_RUN' | 'SUBMIT', providerId: string, model: string): Promise<OperationRecord> {
+  const res = await fetch('/api/applications', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobs: jobs.map(({ id, url }) => ({ id, url })), mode, providerId, model })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not start applications');
+  return data.operation;
+}
+
+export interface JobArtifacts {
+  pdfPath: string | null;
+  folderPath: string | null;
+  filename: string | null;
+  modified: string | null;
+  coverReady: boolean;
+}
+export async function fetchJobArtifacts(job: PipelineJob): Promise<JobArtifacts> {
+  const res = await fetch(`${API_BASE}/api/job/artifacts`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Could not load job artifacts");
+  return data;
 }

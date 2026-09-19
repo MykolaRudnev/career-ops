@@ -116,7 +116,7 @@ export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJo
         }
 
         let date = "";
-        const dateMatch = extra.match(/posted:\s*(\d{4}-\d{2}-\d{2})/i) || extra.match(/(\d{4}-\d{2}-\d{2})/);
+        const dateMatch = extra.match(/submitted:\s*(\d{4}-\d{2}-\d{2})/i) || extra.match(/posted:\s*(\d{4}-\d{2}-\d{2})/i) || extra.match(/(\d{4}-\d{2}-\d{2})/);
         if (dateMatch) date = dateMatch[1];
 
         let status: "pending" | "reviewed" | "applied" | "skipped" = currentSection === "pending" ? "pending" : "reviewed";
@@ -184,10 +184,11 @@ export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJo
   return { pending, processed };
 }
 
-export async function updatePipelineStatus(targetUrl: string, newStatus: "reviewed" | "applied" | "skipped"): Promise<boolean> {
+export async function updatePipelineStatus(targetUrl: string, newStatus: "reviewed" | "applied" | "skipped", submittedAt?: string): Promise<boolean> {
   const pipelinePath = path.join(WORKSPACE_ROOT, "data", "pipeline.md");
   if (!fs.existsSync(pipelinePath)) return false;
 
+  return withPipelineLock(pipelinePath, async () => {
   const content = fs.readFileSync(pipelinePath, "utf8");
   const lines = content.split("\n");
   let found = false;
@@ -212,12 +213,12 @@ export async function updatePipelineStatus(targetUrl: string, newStatus: "review
       continue;
     }
 
-    if (inPending && (line.trim().startsWith("- [ ]") || line.trim().startsWith("- [x]"))) {
-      if (line.includes(targetUrl)) {
+    if ((inPending || inProcessed) && (line.trim().startsWith("- [ ]") || line.trim().startsWith("- [x]"))) {
+      if (line.trim().substring(5).trim().split(" | ")[0] === targetUrl) {
         found = true;
         // Transform line to processed entry
-        const raw = line.trim().substring(5).trim();
-        const updated = `- [x] ${raw} | status: ${newStatus}`;
+        const raw = line.trim().substring(5).trim().split(" | ").filter(part => !/^(status|submitted):/.test(part)).join(" | ");
+        const updated = `- [x] ${raw} | status: ${newStatus}${submittedAt ? ` | submitted: ${submittedAt}` : ""}`;
         processedLinesToAdd.push(updated);
         continue;
       }
@@ -231,7 +232,7 @@ export async function updatePipelineStatus(targetUrl: string, newStatus: "review
     if (procIdx !== -1) {
       newPendingLines.splice(procIdx + 1, 0, ...processedLinesToAdd);
     }
-    fs.writeFileSync(pipelinePath, newPendingLines.join("\n"), "utf8");
+    writeFileAtomic(pipelinePath, newPendingLines.join("\n"));
 
     const manualPath = path.join(WORKSPACE_ROOT, "data", "manual-jobs.json");
     if (fs.existsSync(manualPath)) {
@@ -267,6 +268,7 @@ export async function updatePipelineStatus(targetUrl: string, newStatus: "review
   }
 
   return false;
+  });
 }
 
 export async function updateJobBid(targetUrl: string, bid: string, jobId?: string): Promise<boolean> {
@@ -501,6 +503,37 @@ export function getTailoredCvs(): TailoredCvFile[] {
   }
   cvs.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
   return cvs;
+}
+
+/** Resolve existing artifacts by vacancy identity, never by company substring. */
+export function getJobArtifacts(job: { url?: string; company: string; title: string }) {
+  const folders = artifactDirectories().filter(dir => {
+    const identity = ["artifact-job.json", "metadata.json", "cover-letter-metadata.json"]
+      .map(name => path.join(dir, name)).find(file => fs.existsSync(file));
+    if (!identity) return false;
+    try {
+      const meta = JSON.parse(fs.readFileSync(identity, "utf8"));
+      return job.url && meta.url ? job.url === meta.url
+        : meta.company === job.company && (meta.title || meta.role) === job.title;
+    } catch { return false; }
+  });
+  const pdfs = folders.flatMap(dir => {
+    let preferred = "";
+    try {
+      const meta = JSON.parse(fs.readFileSync(path.join(dir, "metadata.json"), "utf8"));
+      if (typeof meta.pdfPath === "string") preferred = assertSafePath(meta.pdfPath);
+    } catch { /* older artifacts may not have CV metadata */ }
+    if (preferred && path.dirname(preferred) === dir && /\.pdf$/i.test(preferred) && fs.existsSync(preferred)) return [preferred];
+    const canonical = path.join(dir, "tailored-cv.pdf");
+    if (fs.existsSync(canonical)) return [canonical];
+    return fs.readdirSync(dir).filter(name => /\.pdf$/i.test(name) && !/cover[-_ ]?letter|master/i.test(name))
+      .map(name => path.join(dir, name));
+  }).filter(file => fs.statSync(file).isFile() && assertSafePath(fs.realpathSync(file)))
+    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+  const pdfPath = pdfs[0] || null;
+  const folderPath = pdfPath ? path.dirname(pdfPath) : folders[0] || null;
+  return { pdfPath, folderPath, filename: pdfPath ? path.basename(pdfPath) : null,
+    modified: pdfPath ? fs.statSync(pdfPath).mtime.toISOString() : null };
 }
 
 export function getLastScanInfo() {

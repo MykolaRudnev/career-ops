@@ -107,7 +107,7 @@ async function appendPipeline(job: ManualJobRecord) {
   });
 }
 
-async function appendTracker(job: ManualJobRecord, evaluation?: any) {
+export async function appendTracker(job: PipelineJob, evaluation?: any) {
   const trackerPath = resolveTrackerPathForWrite(WORKSPACE_ROOT);
   if (!fs.existsSync(trackerPath)) {
     fs.mkdirSync(path.dirname(trackerPath), { recursive: true });
@@ -121,7 +121,7 @@ async function appendTracker(job: ManualJobRecord, evaluation?: any) {
     const next = (numbers.length ? Math.max(...numbers) : 0) + 1;
     const score = Number.isFinite(evaluation?.fitScore) ? `${Number(evaluation.fitScore).toFixed(1)}/5` : "—";
     const notes = cell([
-      "Source: Manual",
+      job.manualEntry ? "Source: Manual" : "Source: Application automation",
       `manual-id: ${job.id}`,
       job.url.startsWith("http") ? `URL: ${job.url}` : "",
       job.location ? `Location: ${job.location}` : "",

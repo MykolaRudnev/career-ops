@@ -53,6 +53,7 @@ import { decodeEntities } from './providers/_html-entities.mjs';
 import { DEFAULT_USER_AGENT } from './user-agent.mjs';
 import { flagValue, hasFlag, validateFlags } from './lib/cli-flags.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
+import { readJustJoinContent } from './lib/justjoin-content.mjs';
 
 const CAREER_OPS = getCareerOpsRoot();
 
@@ -490,7 +491,9 @@ async function main() {
       process.exitCode = 1;
       return;
     }
-    const raw = await readDom(page);
+    const raw = mode === 'jd' && /^(?:www\.)?justjoin\.it$/.test(new URL(url).hostname)
+      ? await page.evaluate(readJustJoinContent, url)
+      : await readDom(page);
 
     if (mode === 'listing') {
       process.stdout.write(JSON.stringify(normalizeListing(raw.anchors, finalUrl, max)));

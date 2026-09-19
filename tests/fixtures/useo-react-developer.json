@@ -1,0 +1,64 @@
+{
+  "sourceUrl": "https://justjoin.it/job-offer/useo-react-developer-wroclaw-javascript",
+  "capturedAt": "2026-09-18",
+  "offer": {
+    "slug": "useo-react-developer-wroclaw-javascript",
+    "title": "React Developer",
+    "requiredSkills": [
+      {
+        "id": "React",
+        "name": "React",
+        "level": 5
+      },
+      {
+        "id": "TypeScript",
+        "name": "TypeScript",
+        "level": 5
+      },
+      {
+        "id": "JavaScript",
+        "name": "JavaScript",
+        "level": 4
+      },
+      {
+        "id": "Next.js",
+        "name": "Next.js",
+        "level": 4
+      },
+      {
+        "id": "REST API",
+        "name": "REST API",
+        "level": 4
+      },
+      {
+        "id": "Embedded",
+        "name": "Embedded",
+        "level": 3
+      },
+      {
+        "id": "HTML",
+        "name": "HTML",
+        "level": 3
+      },
+      {
+        "id": "CSS",
+        "name": "CSS",
+        "level": 3
+      },
+      {
+        "id": "AWS",
+        "name": "AWS",
+        "level": 1
+      }
+    ],
+    "niceToHaveSkills": [],
+    "languages": [
+      {
+        "code": "en",
+        "level": "C1"
+      }
+    ],
+    "body": "<p>Not a small start-up where nothing happens. A large, stable platform for a Swiss client, and the companies using it are global brands.</p><p class=\"ql-header-3\">The project</p><p>The client runs several React applications and you would work on developing them further.</p><p class=\"ql-header-3\">How the cooperation works</p><ul><li><p>B2B contract only. You run your own business and invoice us. We do not offer an employment contract (umowa o pracę) and we are not able to change that.</p></li><li><p>You work day to day with the client's team. This is not solo work, you coordinate with other people every day and you do it in English.</p></li></ul><p class=\"ql-header-3\">What we expect</p><ul><li><p>At least 7 years of commercial React experience</p></li><li><p>Excellent programming skills in JavaScript-based technologies</p></li><li><p>Solid know-how in TypeScript and Next.js</p></li><li><p>Experience with REST APIs and embedding React components on external pages</p></li><li><p>Good code practices</p></li><li><p>Well-established AI workflows in your daily work</p></li><li><p>You care about your work and see it as more than just code</p></li><li><p>You communicate comfortably in English, written and spoken. You use it every day with the client.</p></li></ul><p class=\"ql-header-3\">Nice to have</p><ul><li><p>Experience with authentication across domains</p></li></ul><p class=\"ql-header-3\">What we offer</p><ul><li><p>A long, stabile cooperation on a project that is already running and stable, not a three-month engagement.</p></li><li><p>You work directly with the client's team. We do not put a project manager between you and them.</p></li><li><p>Remote work, or our office in Wrocław if you prefer to have one.</p></li><li><p>10 days to pay your invoice.</p></li></ul><p class=\"ql-header-3\">About us</p><p>USEO has been building web applications since 2009. What that means for you: we are small, so there are no layers of management, and our projects run for years rather than for a quarter, so you get to see the consequences of your own decisions.</p><p>Almost all of our clients come from referrals. Rated 5.0 on Clutch.</p><p class=\"ql-header-3\">How to apply</p><p>Send your CV. A link to your LinkedIn profile is always welcome, it usually tells us more than a CV does.</p><p></p>"
+  },
+  "excludedCompanyProfile": "USEO to software house, który od 2009 roku buduje i rozwija aplikacje webowe. Ruby on Rails to nasz główny stack, ale nie jedyny."
+}

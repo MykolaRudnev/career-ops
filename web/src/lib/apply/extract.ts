@@ -124,7 +124,7 @@ export async function extractForm(ctx: Page | Frame): Promise<ExtractedForm> {
       const tag = el.tagName.toLowerCase();
       const itype = ((el as HTMLInputElement).type || "").toLowerCase();
       if (tag === "input" && ["hidden", "submit", "button", "image", "reset"].includes(itype)) continue;
-      if ((el as HTMLElement).offsetParent === null && itype !== "radio" && itype !== "checkbox") continue;
+      if ((el as HTMLElement).offsetParent === null && itype !== "radio" && itype !== "checkbox" && itype !== "file") continue;
       // skip ATS "autofill from resume / parse my CV" helper widgets (Ashby) — these
       // are convenience uploaders, not real application fields.
       if ((el as Element).closest('[class*="autofill" i]')) continue;

@@ -121,3 +121,31 @@ test("restructureLegacyArtifactDirs migrates flat legacy folders to Company/Vaca
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("details artifacts resolve the latest CV for the exact vacancy and exclude cover PDFs", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "job-artifacts-"));
+  const moduleUrl = new URL("../server/fileAccess.ts", import.meta.url).href;
+  try {
+    const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", `
+      import fs from 'node:fs';
+      import path from 'node:path';
+      import {getJobArtifacts} from ${JSON.stringify(moduleUrl)};
+      const job = {company:'Example', title:'React Developer', url:'https://example.test/current'};
+      for (const [name,url] of [['react','https://example.test/other'],['react-2',job.url]]) {
+        const folder = path.join('outputs','example',name);
+        fs.mkdirSync(folder,{recursive:true});
+        fs.writeFileSync(path.join(folder,'artifact-job.json'),JSON.stringify({...job,url}));
+        fs.writeFileSync(path.join(folder,'candidate.pdf'),'pdf');
+        fs.writeFileSync(path.join(folder,'cover-letter.pdf'),'pdf');
+      }
+      const folder = path.join('outputs','example','react-2');
+      fs.utimesSync(path.join(folder,'candidate.pdf'),new Date(1000),new Date(1000));
+      fs.writeFileSync(path.join(folder,'latest.pdf'),'new pdf');
+      console.log(JSON.stringify({current:getJobArtifacts(job), missing:getJobArtifacts({...job,url:'https://example.test/missing'})}));
+    `], { cwd: dir, encoding: "utf8" }));
+    assert.match(result.current.pdfPath, /react-2\/latest.pdf$/);
+    assert.match(result.current.folderPath, /react-2$/);
+    assert.equal(result.missing.pdfPath, null);
+    assert.equal(result.missing.folderPath, null);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

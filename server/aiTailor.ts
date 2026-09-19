@@ -1,11 +1,12 @@
 import fs from "node:fs";
+import { cvFingerprint } from "./application/cvCache.ts";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { WORKSPACE_ROOT } from "./fileAccess.ts";
 import { aiProviderRegistry } from "./ai/providerRegistry.ts";
 import type { ProviderExecutionEvent } from "./ai/types.ts";
 import { loadDashboardProfile } from "./profile.ts";
-import { buildMasterCvPayload, candidateContactFields, loadParsedMasterCv, masterOutputPaths, canonicalTailoredExperience, selectProfessionalDevelopment } from "./cvFromMaster.mjs";
+import { buildMasterCvPayload, candidateContactFields, loadParsedMasterCv, masterOutputPaths, canonicalTailoredExperience } from "./cvFromMaster.mjs";
 import {
   classifyDomain,
   domainProjectPool,
@@ -55,6 +56,7 @@ export interface AiTailorResult {
 }
 
 export interface TailorJobMetadata {
+  inputFingerprint?: string;
   jobId: string;
   company: string;
   role: string;
@@ -333,6 +335,7 @@ PROJECT SELECTION RULES
 - MAGENTO/HYVA preferred evidence: HUBER SE, Lufed IT, housetipster.com, edycja.pl, fmic.pl, dreamroots.pl, hbsgroup.net, paypair.com, British American Tobacco, catering24.co.uk, solar.com.pl, 3mk.pl. Additional source-annotated projects in the PRIMARY PROJECT WHITELIST above may be used when more relevant.
 - Supplementary portfolio evidence supplies project scope only. Never infer its employer, dates, release status, metrics or founder ownership, and preserve stated limitations.
 - Give project name, a short primary tech stack, and ONE concise factual scope sentence (normally 15–25 words). Preserve release caveats. Do not repeat experience paragraphs.
+- Professional Development is immutable factual history: the renderer includes every canonical course, newest first. Never select, omit, rewrite or shorten course titles, providers or dates.
 - Use Work Experience before Projects, then Technical Skills, Education, Professional Development and Languages. Prioritize commercial experience on page 1 within two readable pages.
 
 ==================================================
@@ -652,7 +655,7 @@ export async function renderAndValidateTailoredCv(
     experience: aiResult.experience,
     projects: aiResult.projects,
     education: parsedMaster.education,
-    certifications: selectProfessionalDevelopment(parsedMaster.certifications, `${job.title}\n${fullJd}`),
+    certifications: parsedMaster.certifications,
     interests: parsedMaster.languages.length ? [parsedMaster.languages.join(" · ")] : []
   };
 
@@ -675,6 +678,7 @@ export async function renderAndValidateTailoredCv(
 
   const llmTailoringExecuted = aiResult._fallbackUsed !== true && Boolean(aiResult._providerId);
   metadata = {
+    inputFingerprint: cvFingerprint(job, fullJd),
     jobId: job.id,
     company: job.company,
     role: job.title,

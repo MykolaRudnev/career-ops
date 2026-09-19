@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
-import { canonicalTailoredExperience, loadParsedMasterCv, parseCvMarkdown, buildMasterCvPayload, buildSimpleTailorResult, selectProfessionalDevelopment } from '../server/cvFromMaster.mjs';
+import { canonicalTailoredExperience, loadParsedMasterCv, parseCvMarkdown, buildMasterCvPayload, buildSimpleTailorResult, canonicalProfessionalDevelopment } from '../server/cvFromMaster.mjs';
 import { domainProjectPool, portfolioProjectAdditions, validateDomainConsistency, isReactProject, isMagentoProject } from '../server/cvDomainRouting.mjs';
 import { buildTailoringPrompt, emphasizeSummaryKeywords, runAiTailoring } from '../server/aiTailor.ts';
 import { aiProviderRegistry } from '../server/ai/providerRegistry.ts';
@@ -34,9 +34,11 @@ test('six projects pass without weakening primary domain isolation', () => {
   }
 });
 
-test('professional development selects matching source courses without inventing entries', () => {
-  const courses = [{ title: 'React architecture', year: '2024' }, { title: 'Unrelated course' }, { title: 'TypeScript', year: '2023' }];
-  assert.deepEqual(selectProfessionalDevelopment(courses, 'React TypeScript'), [courses[0], courses[2]]);
+test('professional development preserves every factual entry in stable newest-first order', () => {
+  const courses = [{ title: 'React architecture', org: '', year: 'May 2020' }, { title: 'Unrelated course', org: '' }, { title: 'TypeScript', org: 'Verified provider', year: 'Apr 2020' }, { title: 'Design', org: '', year: 'Aug 2026' }];
+  assert.deepEqual(canonicalProfessionalDevelopment(courses), [courses[3], courses[0], courses[2], courses[1]]);
+  assert.equal(courses[0].title, 'React architecture');
+  assert.deepEqual(buildMasterCvPayload().certifications, loadParsedMasterCv().certifications);
 });
 
 test('summary emphasis is JD-backed, technical, bounded and wording-preserving', () => {

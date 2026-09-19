@@ -130,7 +130,7 @@ export function parseCvMarkdown(markdown) {
     .filter(Boolean);
 
   const education = section(markdown, "Education").split("\n").map(parseTitleOrgYear).filter(Boolean);
-  const certifications = section(markdown, "Courses & Continuous Learning").split("\n").map(parseTitleOrgYear).filter(Boolean);
+  const certifications = canonicalProfessionalDevelopment(section(markdown, "Courses & Continuous Learning").split("\n").map(parseTitleOrgYear).filter(Boolean));
   const languages = section(markdown, "Languages")
     .split("\n")
     .map((line) => {
@@ -181,15 +181,14 @@ export function canonicalTailoredExperience(experience, master = loadParsedMaste
   });
 }
 
-export function selectProfessionalDevelopment(certifications, jdText = "") {
-  const tokens = jdText.toLowerCase().match(/[a-z][a-z.+-]*/g) || [];
-  const relevant = new Set(tokens.filter(token => token.length > 2));
-  return certifications.map((entry, index) => ({
-    entry, index,
-    score: (entry.title.toLowerCase().match(/[a-z][a-z.+-]*/g) || []).filter(token => relevant.has(token)).length
-  })).filter(item => item.score > 0)
-    .sort((a, b) => b.score - a.score || a.index - b.index).slice(0, 3)
-    .sort((a, b) => a.index - b.index).map(item => item.entry);
+// Factual history is independent of the JD. Unknown dates stay at the end;
+// stable sorting preserves source order for equal dates without mutating data.
+export function canonicalProfessionalDevelopment(certifications) {
+  const date = entry => {
+    const value = Date.parse(entry.year || "");
+    return Number.isFinite(value) ? value : -Infinity;
+  };
+  return [...certifications].sort((a, b) => date(b) - date(a));
 }
 
 export function candidateContactFields(candidate = loadProfile()) {

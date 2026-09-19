@@ -10,6 +10,7 @@ import {
   updateJobBid,
   getMasterCvStatus,
   getTailoredCvs,
+  getJobArtifacts,
   getLastScanInfo,
   openLocalTarget,
   getTailoringDiff
@@ -21,8 +22,11 @@ import { createManualJob, loadManualJobs } from "./manualJobs.ts";
 import { operationManager } from "./operations.ts";
 import { applicationCoverContext, loadCoverLetter, saveCoverLetterEdit } from "./coverLetter.ts";
 
+import { applicationHistory, recoverInterruptedApplications, startApplications } from "./application/service.ts";
+
 const app = express();
-const PORT = 3001;
+const PORT = Number(process.env.CAREER_OPS_DASHBOARD_PORT || 3001);
+if (!Number.isInteger(PORT) || PORT < 1024 || PORT > 65535) throw new Error("Invalid dashboard port");
 const HOST = "127.0.0.1"; // Security: localhost only
 
 app.use(cors({
@@ -63,6 +67,25 @@ app.post("/api/ai/providers/:providerId/test", async (req, res) => {
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
   }
+});
+
+// Local application actions accept references to stored jobs, never arbitrary browser commands.
+app.use("/api/applications", (req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && !["http://localhost:5173", "http://127.0.0.1:5173", `http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`].includes(origin)) return res.status(403).json({ error: "Untrusted origin" });
+  if (req.method === "POST" && !req.is("application/json")) return res.status(415).json({ error: "JSON required" });
+  next();
+});
+app.get("/api/applications", (_req, res) => {
+  try { res.json({ attempts: applicationHistory() }); }
+  catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+app.post("/api/applications", (req, res) => {
+  try {
+    const { jobs, mode = "DRY_RUN", providerId, model } = req.body || {};
+    const operation = startApplications(jobs, { mode, providerId, model });
+    res.status(202).json({ operation });
+  } catch (error: any) { res.status(400).json({ error: error.message }); }
 });
 
 // 1. Overall System Status
@@ -189,6 +212,15 @@ app.post("/api/cover-letter/generate", (req, res) => {
   }
 });
 
+app.post("/api/job/artifacts", (req, res) => {
+  try {
+    const { job } = req.body || {};
+    if (typeof job?.company !== "string" || typeof job?.title !== "string" || !job.company || !job.title) return res.status(400).json({ error: "Missing job company or title" });
+    const cover = loadCoverLetter(job);
+    res.json({ ...getJobArtifacts(job), coverReady: Boolean(cover) });
+  } catch (error: any) { res.status(400).json({ error: error.message }); }
+});
+
 app.post("/api/cover-letter/status", (req, res) => {
   try {
     const { job } = req.body || {};
@@ -210,7 +242,7 @@ app.put("/api/cover-letter", (req, res) => {
 });
 
 app.get("/api/cover-letter/download", (req, res) => {
-  const job = { company: String(req.query.company || ""), title: String(req.query.title || "") };
+  const job = { company: String(req.query.company || ""), title: String(req.query.title || ""), url: String(req.query.url || "") };
   const artifact = loadCoverLetter(job);
   if (!artifact) return res.status(404).json({ success: false, error: "Cover Letter not found" });
   res.download(artifact.textPath, "cover-letter.txt");
@@ -360,6 +392,8 @@ if (fs.existsSync(distPath)) {
     }
   });
 }
+
+recoverInterruptedApplications();
 
 // Start listening strictly on 127.0.0.1
 app.listen(PORT, HOST, () => {
