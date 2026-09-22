@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { WORKSPACE_ROOT, type PipelineJob } from "./fileAccess.ts";
+import { inferJobCountries } from "./jobCountry.mjs";
 import { acquireTrackerLock, cell, trackerLockDirFor, writeFileAtomic } from "../tracker-utils.mjs";
 import { withPipelineLock } from "../pipeline-lock.mjs";
 import { resolveTrackerPathForWrite } from "../path-resolver.mjs";
@@ -159,7 +160,7 @@ export async function createManualJob(input: ManualJobInput, options: { addAnywa
     title,
     description,
     location,
-    countries: [],
+    countries: inferJobCountries(location),
     workModel,
     date: now.toISOString().slice(0, 10),
     status: "pending",

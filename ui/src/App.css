@@ -807,6 +807,7 @@
 .application-toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 12px 16px; border-top: 1px solid var(--border); }
 .application-toolbar label, .score-filter { display: flex; gap: 8px; align-items: center; color: var(--text-muted); font-size: 13px; }
 .application-toolbar select, .score-filter select { background: var(--bg-primary); color: var(--text-main); padding: 7px; border: 1px solid var(--border); border-radius: var(--radius); }
+.market-lane-hint { font-size: 12px; color: var(--text-muted); }
 .score-filter { padding: 8px 16px; }
 .application-history { padding: 12px 16px; border-top: 1px solid var(--border); }
 .application-history summary { cursor: pointer; line-height: 1.7; color: var(--text-muted); }

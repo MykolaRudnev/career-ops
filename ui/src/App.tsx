@@ -38,6 +38,7 @@ import {
   type CoverLetterArtifact
 } from "./api";
 import { ManualJobBoard } from "./ManualJobBoard";
+import { isPolandJob, loadMarketLane, matchesMarketLane, saveMarketLane, type MarketLane } from "./marketLane";
 import { CoverLetterModal } from "./CoverLetterModal";
 import {
   Search,
@@ -90,6 +91,7 @@ export function App() {
   const [modelFilter, setModelFilter] = useState<"ALL" | "Remote" | "Hybrid" | "Office">("ALL");
   const [minimumScore, setMinimumScore] = useState(0);
   const [countryFilter, setCountryFilter] = useState("ALL");
+  const [marketLane, setMarketLane] = useState<MarketLane>(() => loadMarketLane());
   const [matchCategory, setMatchCategory] = useState<
     "ALL" | "BEST_MATCH" | "REACT_NEXT" | "SHOPIFY" | "MAGENTO" | "NODE" | "SENIOR_LEAD"
   >("ALL");
@@ -449,6 +451,8 @@ export function App() {
     return counts;
   }, new Map<string, number>());
   const countryOptions = [...countryCounts.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const polandCount = currentList.filter(isPolandJob).length;
+  const bulkLaneCount = currentList.length - polandCount;
 
   const filteredJobs = currentList.filter((job) => {
     const q = searchQuery.toLowerCase();
@@ -458,6 +462,7 @@ export function App() {
       job.location.toLowerCase().includes(q);
     const matchModel = modelFilter === "ALL" || job.workModel === modelFilter;
     const matchCountry = countryFilter === "ALL" || (job.countries || ["Unknown"]).includes(countryFilter);
+    const matchLane = matchesMarketLane(job, marketLane);
 
     let matchCat = true;
     if (matchCategory === "BEST_MATCH") {
@@ -479,7 +484,7 @@ export function App() {
       matchCat = t.includes("senior") || t.includes("lead") || t.includes("principal") || t.includes("staff");
     }
 
-    return matchSearch && matchModel && matchCountry && matchCat && (job.fitScore || 0) >= minimumScore;
+    return matchSearch && matchModel && matchCountry && matchLane && matchCat && (job.fitScore || 0) >= minimumScore;
   }).sort((a, b) => (b.compatibilityPercent || 0) - (a.compatibilityPercent || 0));
 
   const visibleJobs = filteredJobs.slice(0, 100);
@@ -973,6 +978,21 @@ export function App() {
             </div>
 
             <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Market:</span>
+              {([
+                ["BULK", `US / Intl (${bulkLaneCount})`],
+                ["POLAND", `Poland · manual (${polandCount})`],
+                ["ALL", `All (${currentList.length})`],
+              ] as const).map(([lane, label]) => (
+                <button
+                  key={lane}
+                  className={`btn btn-sm ${marketLane === lane ? "btn-secondary" : "btn-outline"}`}
+                  title={lane === "POLAND" ? "Poland roles: pick Apply on each row" : lane === "BULK" ? "Non-Poland roles — safe for bulk queue" : "Show every market"}
+                  onClick={() => { setMarketLane(lane); saveMarketLane(lane); }}
+                >
+                  {label}
+                </button>
+              ))}
               <label className="country-filter-label">
                 Country:
                 <select className="country-filter" value={countryFilter} onChange={(event) => setCountryFilter(event.target.value)}>
