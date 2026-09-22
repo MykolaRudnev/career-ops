@@ -14,6 +14,21 @@ test('Run Job Search executes provider and direct ATS lanes and reports Polish p
   assert.equal(receipt.offers.length,1,'same company/title/location from provider and ATS is one offer');
 });
 
+test('refresh forwards --refresh to the provider lane so dashboard scans bypass cache', async () => {
+  const argsByScript = new Map();
+  await discoverJobs({
+    dryRun: true,
+    refresh: true,
+    laneRunner: async (script, args) => {
+      argsByScript.set(script, args);
+      return { script, code: 0, data: script === 'scan.mjs' ? providerReceipt : atsReceipt, error: null };
+    },
+    reconcile: async () => ({}),
+  });
+  assert.ok(argsByScript.get('scan.mjs')?.includes('--refresh'), `scan.mjs args should include --refresh, got ${JSON.stringify(argsByScript.get('scan.mjs'))}`);
+  assert.equal(argsByScript.get('scan-ats-full.mjs')?.includes('--refresh'), false);
+});
+
 test('one provider-lane failure does not stop the ATS lane or global receipt', async () => {
   const calls=[];
   const receipt=await discoverJobs({ dryRun:true, laneRunner:async(script)=>{calls.push(script);return script==='scan.mjs'?{script,code:1,data:null,error:'NoFluffJobs API_CHANGED'}:{script,code:0,data:atsReceipt,error:null};}, reconcile:async()=>({}) });

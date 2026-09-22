@@ -34,6 +34,7 @@
  *   node scan.mjs --posted-before 2026-08-01   # absolute upper bound on posting date
  *   node scan.mjs --rediscover-404             # re-verify tracked URLs that 404/410 (rides on --verify)
  *   node scan.mjs --quiet                      # suppress the manifesto footer
+ *   node scan.mjs --refresh                    # bypass provider cache (live fetch)
  *   node scan.mjs --help                       # print this usage block and exit
  */
 
@@ -2618,7 +2619,7 @@ function guardStatusFor(code) {
 const KNOWN_FLAGS = [
   '--dry-run', '--verify', '--headed-fallback', '--throttle', '--rediscover-404',
   '--include-blacklisted', '--company', '--posted-after', '--posted-before',
-  '--since', '--quiet', '--json', '--help', '-h',
+  '--since', '--quiet', '--refresh', '--json', '--help', '-h',
 ];
 
 // Flags whose space-separated value is the NEXT argv token (the `--flag=value`
@@ -2642,6 +2643,7 @@ const USAGE = `Usage:
   node scan.mjs --posted-before 2026-08-01   # absolute upper bound on posting date
   node scan.mjs --json                       # emit one machine-readable receipt on stdout
   node scan.mjs --quiet                      # suppress the manifesto footer
+  node scan.mjs --refresh                    # bypass provider cache (live fetch)
   node scan.mjs --help                       # print this usage block and exit`;
 
 async function main() {
@@ -2650,6 +2652,10 @@ async function main() {
   const dryRun = args.includes('--dry-run');
   const jsonMode = args.includes('--json');
   if (jsonMode) console.log = console.error.bind(console);
+  // Bypass discovery/runtime provider-cache so an explicit scan sees offers
+  // published after the last cached fetch (dashboard "Run Job Search" always
+  // passes this; scheduled/CLI scans keep the TTL unless --refresh is set).
+  const refresh = args.includes('--refresh');
   const verify = args.includes('--verify');
   // Opt-in: on an anti-bot challenge (e.g. pracuj.pl Cloudflare wall), retry the
   // URL in a headed browser. Off by default — headed Chromium needs a display, so
@@ -2928,6 +2934,7 @@ async function main() {
       sinceMs: earlyStopSinceMs,
       includeUndated: true,
       persist: !dryRun,
+      refresh,
       locationHints: config.location_filter,
     };
     let sourceName = provider.id === 'local-parser' ? 'local-parser' : `${provider.id}-api`;

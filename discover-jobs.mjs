@@ -79,11 +79,15 @@ export function mergeDiscoveryReceipts(providerLane, atsLane, reconciliation = {
     datasetStatus: ats.datasetStatus, postingsKept: ats.postingsKept, postingsDroppedNoDate: ats.postingsDroppedNoDate, unreachableBoards: ats.unreachableBoards,
   };
 }
-export async function discoverJobs({ bulk = false, dryRun = false, sinceDays, ats, limit, cwd = ROOT, env = process.env, laneRunner = runLane, reconcile = reconcilePending } = {}) {
+export async function discoverJobs({ bulk = false, dryRun = false, refresh = false, sinceDays, ats, limit, cwd = ROOT, env = process.env, laneRunner = runLane, reconcile = reconcilePending } = {}) {
   const providerArgs = ['--quiet'];
   const atsArgs = ['--since', String(sinceDays || (bulk ? 30 : 7)), '--limit', String(limit || (bulk ? 150 : 25))];
   if (ats) atsArgs.push('--ats', ats);
   if (dryRun) { providerArgs.push('--dry-run'); atsArgs.push('--dry-run'); }
+  // User-initiated discovery (dashboard Run Job Search) must not reuse a
+  // multi-hour provider cache — that is how a JustJoin offer published minutes
+  // before the click never reaches pipeline.md.
+  if (refresh) providerArgs.push('--refresh');
   const providerLane = await laneRunner('scan.mjs', providerArgs, { cwd, env });
   const atsLane = await laneRunner('scan-ats-full.mjs', atsArgs, { cwd, env });
   const reconciliation = dryRun ? {} : await reconcile({ root: env.CAREER_OPS_ROOT || cwd, maxChecks: bulk ? 400 : 200, maxBrowser: bulk ? 12 : 8 });
@@ -97,7 +101,7 @@ export async function discoverJobs({ bulk = false, dryRun = false, sinceDays, at
 async function main() {
   const args = process.argv.slice(2);
   const value = flag => { const index = args.indexOf(flag); return index >= 0 ? args[index + 1] : undefined; };
-  const receipt = await discoverJobs({ bulk: args.includes('--bulk'), dryRun: args.includes('--dry-run'), sinceDays: Number(value('--since')) || undefined, ats: value('--ats'), limit: Number(value('--limit')) || undefined });
+  const receipt = await discoverJobs({ bulk: args.includes('--bulk'), dryRun: args.includes('--dry-run'), refresh: args.includes('--refresh'), sinceDays: Number(value('--since')) || undefined, ats: value('--ats'), limit: Number(value('--limit')) || undefined });
   if (args.includes('--json')) process.stdout.write(`${JSON.stringify(receipt)}\n`);
   else console.log(`SCAN COMPLETE\nSources attempted: ${receipt.sourcesAttempted}\nHealthy: ${receipt.healthy} · Degraded: ${receipt.degraded} · Blocked: ${receipt.blocked}\nFetched/relevant: ${receipt.found}\nDuplicates: ${receipt.duplicates}\nNew jobs: ${receipt.added}\nExisting Pending checked: ${receipt.existingPendingChecked}\nExpired removed: ${receipt.expiredRemoved}\nUncertain: ${receipt.uncertain}`);
   if (receipt.status === 'ERROR') process.exitCode = 1;

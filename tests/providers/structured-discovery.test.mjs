@@ -38,6 +38,7 @@ test('registry cache avoids repeat fetches; retired sources make no requests',as
  try {
   let calls=0;const p=wrapProvider({id:'jobicy',fetch:async()=>{calls++;return [{title:'React',url:'https://jobicy.com/jobs/1',location:'Europe'}];}});
   await p.fetch({name:'Jobicy'},{});await p.fetch({name:'Jobicy'},{});assert.equal(calls,1);
+  await p.fetch({name:'Jobicy'},{refresh:true});assert.equal(calls,2,'refresh must bypass provider-cache');
   const disabled=wrapProvider({id:'ziprecruiter',fetch:async()=>{throw Error('must never run');}});assert.deepEqual(await disabled.fetch({},{}),[]);
   await assert.rejects(epraca.fetch({},{}),/EPRACA_PARTNER/);
  } finally {if(prior===undefined) delete process.env.CAREER_OPS_DATA_DIR;else process.env.CAREER_OPS_DATA_DIR=prior;rmSync(dir,{recursive:true,force:true});}
