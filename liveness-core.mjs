@@ -27,9 +27,11 @@ const HARD_EXPIRED_PATTERNS = [
   // copy says "once the application form has been filled…" as expired.
   /\b(?:job|jobs|position|role|posting|opening|vacancy|requisition|req|listing)\b[\s\S]{0,60}?(?<!\b(?:application|form)\s)has been filled\b(?!\s+out)/i,
   /this job has expired/i,
+  /this offer has expired/i,
+  /(?:job|offer|posting) (?:has )?expired/i,
   /job posting has expired/i,
   /no longer accepting applications/i,
-  /this (position|role|job) (is )?no longer/i,
+  /this (position|role|job|offer) (is )?no longer/i,
   /this job (listing )?is closed/i,
   /job (listing )?not found/i,
   /the page you are looking for doesn.t exist/i,
@@ -37,6 +39,12 @@ const HARD_EXPIRED_PATTERNS = [
   /closed on \d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i,
   /closed on (?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{1,2}/i,
   /diese stelle (ist )?(nicht mehr|bereits) besetzt/i,
+  // Polish boards (JustJoin / NoFluff / Pracuj): without these, expired SPA banners
+  // fall through to uncertain and stay Pending forever.
+  /oferta (wygasla|nieaktualna|juz niedostepna|nie jest juz dostepna)/i,
+  /ogloszenie (wygaslo|nieaktualne|zostalo zakonczone)/i,
+  /oferta (zostala )?usunieta/i,
+  /nie przyjmujemy juz aplikacji/i,
   // French closure banners. Spelled accent-free on purpose: normalizeForMatch
   // strips diacritics, so "expiree" here matches "expirée" on the page.
   /offre (expiree|n'est plus disponible)/i,

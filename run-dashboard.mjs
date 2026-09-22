@@ -18,7 +18,7 @@ console.log("==================================================");
 if (shouldScan) {
   console.log("\n🔍 Step 1/3: Running portal job search scan...");
   try {
-    execSync("node scan.mjs", { cwd: __dirname, stdio: "inherit" });
+    execSync("node discover-jobs.mjs", { cwd: __dirname, stdio: "inherit" });
     console.log("\n✅ Job search scan completed! Updated pipeline.md with latest vacancies.\n");
   } catch (err) {
     console.error("\n⚠️ Scan finished with notes:", err.message);

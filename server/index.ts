@@ -37,7 +37,11 @@ app.use(cors({
 app.use(express.json({ limit: "2mb" }));
 
 app.get("/api/discovery/health", (_req, res) => {
-  try { res.json(readProviderHealth()); } catch { res.status(500).json({error:"Source health unavailable"}); }
+  try {
+    const file = path.join(WORKSPACE_ROOT, "data/discovery-health.json");
+    const saved = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
+    res.json(saved?.source_health || readProviderHealth());
+  } catch { res.status(500).json({error:"Source health unavailable"}); }
 });
 
 // AI providers are backend-owned allowlisted implementations; the browser never supplies commands.

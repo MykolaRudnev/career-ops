@@ -110,7 +110,7 @@ try {
     // modes/pipeline.md → liveness sweep step 3. The `~~` wrapper must not be
     // absorbed into the URL, or the key would never match the live posting.
     ['- [x] ~~https://jobs.example.com/posting/5 | Acme Corp | Backend Engineer~~ — posting expired (liveness sweep)',
-      'https://jobs.example.com/posting/5', 'expired entry with a URL'],
+      null, 'expired entry with a URL (eligible to reopen)'],
     // modes/oferta.md → liveness gate; modes/auto-pipeline.md → Step 0.5 / 0.6.
     // No URL at all — nothing to seed, and nothing to crash on.
     ['- [x] ~~Acme Corp | Data Engineer~~ — oferta nieaktywna', null, 'expired entry without a URL'],

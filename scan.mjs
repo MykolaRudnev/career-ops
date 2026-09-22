@@ -58,7 +58,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import * as yaml from 'js-yaml';
 
-import { recordDuplicates } from './discovery/health.mjs';
+import { readProviderHealth, recordDuplicates } from './discovery/health.mjs';
 import { deduplicateJobs } from './discovery/normalize.mjs';
 import { makeHttpCtx } from './providers/_http.mjs';
 import { buildTrustValidator } from './providers/_trust-validator.mjs';
@@ -1173,7 +1173,7 @@ export function shouldDedupScanHistoryRow({ firstSeen, status = 'added' }, { rec
     const cooldownUntil = parts[parts.length - 1];
     return today < cooldownUntil;
   }
-  if (status !== 'added') return true;
+  if (status !== 'added' && status !== 'skipped_expired') return true;
   if (recheckAfterDays == null) return true;
   const ageDays = daysBetweenIsoDates(firstSeen, today);
   if (ageDays == null) return true;
@@ -1313,7 +1313,7 @@ function pipelineEntry(line, checkboxRe) {
   if (!checkbox) return null;
 
   const rest = line.slice(checkbox[0].length);
-  if (!rest.startsWith('~~')) return { body: rest, expired: false };
+  if (!rest.startsWith('~~')) return { body: rest, expired: /(?:^|\|\s*)status:\s*(?:expired|closed)(?:\s*\||$)/i.test(rest) };
 
   const closed = rest.match(PIPELINE_STRIKETHROUGH_RE);
   return { body: closed ? closed[1] : rest.slice(2), expired: true };
@@ -1337,7 +1337,7 @@ function pipelineEntry(line, checkboxRe) {
  */
 function extractPipelineUrl(line) {
   const entry = pipelineEntry(line, PIPELINE_CHECKBOX_RE);
-  if (!entry) return null;
+  if (!entry || entry.expired) return null;
 
   const match = entry.body.match(PIPELINE_URL_RE);
   return match ? match[0] : null;
@@ -2748,6 +2748,8 @@ async function main() {
   let annotatedBlacklisted = 0;
   let totalFilteredVisa = 0;
   let totalDupes = 0;
+  const sourceRelevant = new Map();
+  const sourceDuplicates = new Map();
   const newOffers = [];
   const errors = [...resolveErrors];
   const emptyTargets = [];
@@ -2906,14 +2908,18 @@ async function main() {
           totalFilteredVisa++;
           continue;
         }
+        const sourceId = String(sourceName).replace(/-api$/, '');
+        sourceRelevant.set(sourceId, (sourceRelevant.get(sourceId) || 0) + 1);
         const dedupUrl = normalizeUrlForDedup(job.url);
         if (seenUrls.has(dedupUrl)) {
           totalDupes++;
+          sourceDuplicates.set(sourceId, (sourceDuplicates.get(sourceId) || 0) + 1);
           continue;
         }
         const key = companyRoleDedupKey(job.company, job.title, canonicalizeCompany);
         if (seenCompanyRoles.has(key)) {
           totalDupes++;
+          sourceDuplicates.set(sourceId, (sourceDuplicates.get(sourceId) || 0) + 1);
           continue;
         }
         const cooldownResult = cooldownFilter(job);
@@ -3249,6 +3255,12 @@ async function main() {
       duplicates: totalDupes,
       added: verifiedOffers.length,
       added_urls: verifiedOffers.map(offer => offer.url),
+      offers: verifiedOffers.map(offer => ({ company: offer.company, title: offer.title, url: offer.url, location: offer.location || null, postedAt: offer.postedAt || offer.publishedAt || null, source: offer.source || offer._scanSource, sourcePriority: offer.sourcePriority, directEmployerSource: offer.directEmployerSource, sourceJobId: offer.sourceJobId })),
+      source_health: [...new Set(targets.map(target => target._provider.id))].map(source => {
+        const rows = readProviderHealth().filter(row => row.source === source);
+        const latest = rows.sort((left, right) => String(right.checkedAt || right.lastSuccessfulScan || '').localeCompare(String(left.checkedAt || left.lastSuccessfulScan || '')))[0] || { source, name: source, status: 'CONFIG_MISSING', errors: ['Not executed yet'] };
+        return { ...latest, name: rows.length === 1 ? latest.name : source, jobsFetched: rows.reduce((sum, row) => sum + (row.jobsFetched || 0), 0), jobsRelevant: sourceRelevant.get(source) || 0, newJobs: verifiedOffers.filter(offer => String(offer.source || offer._scanSource).replace(/-api$/, '') === source).length, duplicates: sourceDuplicates.get(source) || 0, errors: [...new Set(rows.flatMap(row => row.errors || []))] };
+      }),
       errors: errors.map(({ company, error }) => ({ company, error })),
       dry_run: dryRun,
       status: errors.length ? 'DEGRADED' : 'READY',

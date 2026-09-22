@@ -7,7 +7,7 @@ export interface PipelineJob {
   countries: string[];
   workModel: string;
   date: string;
-  status: "pending" | "reviewed" | "applied" | "skipped";
+  status: "pending" | "reviewed" | "applied" | "skipped" | "expired";
   extra: string;
   fitScore?: number;
   recommendation?: "APPLY" | "REVIEW" | "SKIP";

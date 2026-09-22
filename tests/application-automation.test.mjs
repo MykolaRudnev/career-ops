@@ -152,3 +152,17 @@ test('required cover-letter textarea respects its smaller maxlength without subm
   assert.ok(answer.endsWith('Happy to share more.'));
   assert.equal(result.submissions, 0);
 });
+test('liveness preflight stops an expired job before CV generation or submission', async () => {
+  const context = await browser.newContext();
+  await context.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<main><h1>This job is no longer available</h1><p>The listing has closed and is no longer accepting applications.</p></main>' }));
+  const page = await context.newPage();
+  let cvCalls = 0;
+  const result = await runApplicationPage(page, job, {
+    signal: new AbortController().signal, mode: 'SUBMIT', update: () => {},
+    ensureCv: async () => { cvCalls++; return { cvPath: pdf }; },
+    answer: async () => null, coverLetter: async () => null,
+  });
+  await context.close();
+  assert.equal(result.result, 'CLOSED');
+  assert.equal(cvCalls, 0);
+});

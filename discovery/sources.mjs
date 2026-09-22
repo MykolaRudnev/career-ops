@@ -12,9 +12,8 @@ export const SOURCE_POLICIES = {
   landingjobs:api('https://landing.jobs/api/v1/jobs'),
   weworkremotely:api('https://weworkremotely.com/remote-jobs.rss',8,{integrationType:'PUBLIC_RSS'}),
   nodesk:api('https://nodesk.co/remote-jobs/index.xml',8,{integrationType:'PUBLIC_RSS'}),
-  // Live robots checked 2026-09-15. Preserve adapters; never call disallowed APIs.
-  justjoin:api('https://justjoin.it/api/candidate-api/offers',3,{integrationType:'SEARCH_ONLY',status:'DEGRADED',reason:'robots.txt disallows /api/; structured adapter retained',sourcePriority:20}),
-  nofluffjobs:api('https://nofluffjobs.com/api/search/posting',3,{integrationType:'SEARCH_ONLY',status:'DEGRADED',reason:'robots.txt disallows /api/; structured adapter retained',sourcePriority:20}),
+  justjoin:api('https://justjoin.it/api/candidate-api/offers',3,{sourcePriority:20}),
+  nofluffjobs:api('https://nofluffjobs.com/api/search/posting',3,{sourcePriority:20}),
   pracuj:api('https://www.pracuj.pl',8,{integrationType:'SEARCH_ONLY',sourcePriority:50}),
   protocol:api('https://theprotocol.it',8,{integrationType:'SEARCH_ONLY',sourcePriority:20}),
   bulldogjob:api('https://bulldogjob.com',8,{integrationType:'SEARCH_ONLY',sourcePriority:30}),

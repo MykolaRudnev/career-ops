@@ -31,7 +31,7 @@ export interface PipelineJob {
   countries: string[];
   workModel: string;
   date: string;
-  status: "pending" | "reviewed" | "applied" | "skipped";
+  status: "pending" | "reviewed" | "applied" | "skipped" | "expired";
   extra: string;
   bid?: string;
   fitScore?: number;
@@ -119,9 +119,10 @@ export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJo
         const dateMatch = extra.match(/submitted:\s*(\d{4}-\d{2}-\d{2})/i) || extra.match(/posted:\s*(\d{4}-\d{2}-\d{2})/i) || extra.match(/(\d{4}-\d{2}-\d{2})/);
         if (dateMatch) date = dateMatch[1];
 
-        let status: "pending" | "reviewed" | "applied" | "skipped" = currentSection === "pending" ? "pending" : "reviewed";
+        let status: "pending" | "reviewed" | "applied" | "skipped" | "expired" = currentSection === "pending" ? "pending" : "reviewed";
         if (extra.includes("applied")) status = "applied";
         if (extra.includes("skipped")) status = "skipped";
+        if (/status:\s*(expired|closed)/i.test(extra)) status = "expired";
 
         // Check if there is a tailored PDF matching company
         const compClean = company.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -172,7 +173,8 @@ export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJo
           } : {})
         };
 
-        if (currentSection === "pending") {
+        // Expired must not appear in active Pending / Best Matches even if still under ## Pending.
+        if (currentSection === "pending" && status !== "expired") {
           pending.push(job);
         } else {
           processed.push(job);
@@ -184,7 +186,7 @@ export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJo
   return { pending, processed };
 }
 
-export async function updatePipelineStatus(targetUrl: string, newStatus: "reviewed" | "applied" | "skipped", submittedAt?: string): Promise<boolean> {
+export async function updatePipelineStatus(targetUrl: string, newStatus: "reviewed" | "applied" | "skipped" | "expired", submittedAt?: string): Promise<boolean> {
   const pipelinePath = path.join(WORKSPACE_ROOT, "data", "pipeline.md");
   if (!fs.existsSync(pipelinePath)) return false;
 
@@ -249,7 +251,7 @@ export async function updatePipelineStatus(targetUrl: string, newStatus: "review
               const trackerLines = fs.readFileSync(trackerPath, "utf8").split("\n");
               const header = trackerLines.find((line) => /^\|\s*#\s*\|/.test(line));
               const statusIndex = header ? header.split("|").map((part) => part.trim().toLowerCase()).indexOf("status") : 6;
-              const canonical = newStatus === "applied" ? "Applied" : newStatus === "skipped" ? "SKIP" : "Evaluated";
+              const canonical = newStatus === "applied" ? "Applied" : newStatus === "skipped" || newStatus === "expired" ? "SKIP" : "Evaluated";
               const updatedTracker = trackerLines.map((line) => {
                 if (!line.includes(`manual-id: ${manual.id}`)) return line;
                 const parts = line.split("|");

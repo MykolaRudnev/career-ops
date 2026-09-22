@@ -9,7 +9,7 @@ export { ATS_SOURCES } from "@/lib/explore";
 
 /**
  * ACL for the discovery engine — orchestrates the REAL core scanner
- * `scan-ats-full.mjs` (reverse ATS discovery, a contract entry-point). We run it
+ * `discover-jobs.mjs` (reverse ATS discovery, a contract entry-point). We run it
  * with `--dry-run` so it writes NOTHING (the user reviews + chooses), point it at
  * an EPHEMERAL filter file (never the user's portals.yml), and surface its results.
  *
@@ -61,8 +61,8 @@ function parseOfferLine(source: string, date: string, rest: string): Omit<Discov
 // unknown flag — the web is local-first, so the version is whatever they installed.
 export function scannerSupportsJson(): boolean {
   try {
-    const src = fs.readFileSync(rootScript("scan-ats-full"), "utf8");
-    return src.includes("--json") && src.includes("capHit");
+    const src = fs.readFileSync(rootScript("discover-jobs"), "utf8");
+    return src.includes("--json") && src.includes("mergeDiscoveryReceipts");
   } catch {
     return false;
   }
@@ -86,7 +86,7 @@ export function runDiscovery(filters: ExploreFilters, onEvent: (e: ScanEvent) =>
     const ats = (filters.ats.length ? filters.ats : [...ATS_SOURCES]).filter((a) => (ATS_SOURCES as readonly string[]).includes(a));
     const useJson = scannerSupportsJson();
     const args = [
-      rootScript("scan-ats-full"),
+      rootScript("discover-jobs"),
       "--dry-run",
       "--since",
       String(Math.max(1, filters.sinceDays || 7)),

@@ -48,7 +48,7 @@ import lever from './providers/lever.mjs';
 import ashby from './providers/ashby.mjs';
 import workday from './providers/workday.mjs';
 import icims from './providers/icims.mjs';
-import { buildTitleFilter, buildLocationFilter, buildContentFilter, matchedTitleKeywords, loadSeenUrls, normalizeUrlForDedup, appendToPipeline, appendToScanHistory, loadBlacklist, parseSinceDays, PORTALS_PATH, PIPELINE_PATH } from './scan.mjs';
+import { buildTitleFilter, buildLocationFilter, buildContentFilter, matchedTitleKeywords, loadSeenUrls, loadSeenCompanyRoles, buildCompanyCanonicalizer, companyRoleDedupKey, normalizeUrlForDedup, appendToPipeline, appendToScanHistory, loadBlacklist, parseSinceDays, PORTALS_PATH, PIPELINE_PATH } from './scan.mjs';
 import { localToday } from './lib/local-today.mjs';
 import { SEED_SOURCES, toPortalEntry } from './seeds/vc-portfolios.mjs';
 import { normalizeCompany } from './tracker-utils.mjs';
@@ -735,6 +735,11 @@ async function main() {
   const { seen: seenUrls } = loadSeenUrls({}, {
     extraTokensFor: (url, portal) => providerForSource(portal)?.dedupKey?.({ url }),
   });
+  const canonicalizeCompany = buildCompanyCanonicalizer(config.company_aliases);
+  const recheckAfterDays = Number.parseInt(config.scan_history?.recheck_after_days, 10);
+  const seenCompanyRoles = loadSeenCompanyRoles(undefined, canonicalizeCompany, {
+    policy: { recheckAfterDays: Number.isFinite(recheckAfterDays) ? recheckAfterDays : null },
+  });
   const blacklist = loadBlacklist();
   // sinceMs and includeUndated let providers (currently only workday.mjs)
   // stop paginating a tenant early instead of always walking to max_pages:
@@ -848,8 +853,10 @@ async function main() {
       if (!locationFilter(job.location, job.url, job.title)) continue;
       if (!contentFilter(job.description, matchedTitleKeywords(job.title, fullTitleFilterConfig))) { droppedContent++; continue; }
       const dedupToken = dedupTokenFor(job, provider);
-      if (seenUrls.has(dedupToken)) continue;
+      const roleKey = companyRoleDedupKey(job.company, job.title, canonicalizeCompany);
+      if (seenUrls.has(dedupToken) || seenCompanyRoles.has(roleKey)) continue;
       seenUrls.add(dedupToken); // intra-scan dedup
+      seenCompanyRoles.add(roleKey);
       newOffers.push({ ...job, source: `${sourceName}-full`, dateStatus: job.postedAt ? 'dated' : 'unknown' });
     }
   };

@@ -17,6 +17,7 @@ import { loadCandidate, resolveAnswer } from './answers.ts';
 import { applicationContext, releaseBrowser, runApplicationPage, ManualApplication } from './browser.ts';
 import { upsertApplicationAnswersSection } from '../../application-answers.mjs';
 import { writeFileAtomic } from '../../tracker-utils.mjs';
+import { checkLivenessCheap } from '../../reconcile-pending-liveness.mjs';
 
 const storePath = () => path.join(getCareerOpsRoot(), 'data/application-automation.json');
 function save(rows: any[]) {
@@ -113,6 +114,12 @@ export function startApplications(selection: any, options: any = {}) {
       const job = { ...fresh, ...careerOps.getEvaluationForDisplay(fresh) };
       const blocked = preflight(job, trackerRows(), history.filter(a => a.attemptId !== attempt.attemptId));
       if (blocked) return blocked;
+      // Same cheap classifier as Pending reconcile — covers JustJoin/NFJ/Solid, not only ATS APIs.
+      const liveness = await checkLivenessCheap(job.url);
+      if (liveness?.result === 'expired') {
+        await updatePipelineStatus(job.url, 'expired');
+        return { result: 'CLOSED', reason: liveness.reason };
+      }
       update({ result: 'PREPARING' });
       const browser = await applicationContext();
       const page = await browser.newPage();
@@ -141,6 +148,7 @@ export function startApplications(selection: any, options: any = {}) {
       });
       // Save receipt BEFORE canonical tracker write, so a write failure cannot trigger duplicate submission.
       update({ ...execution, completedAt: new Date().toISOString() });
+      if (execution.result === 'CLOSED') await updatePipelineStatus(job.url, 'expired');
       if (execution.result === 'SUBMITTED') {
         try { await recordSubmitted(job, attempt); }
         catch (error: any) { update({ trackerWarning: error.message }); }

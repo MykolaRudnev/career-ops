@@ -240,7 +240,7 @@ export function App() {
     showNotification("Starting real Career-Ops scan...");
     try {
       const data = await runJobSearch();
-      showNotification(`Scan completed! Added ${data.added || 0} new offers.`);
+      showNotification(`Scan complete: ${data.added || 0} new · ${data.expiredRemoved || 0} expired removed · ${data.uncertain || 0} uncertain`);
       await loadData();
     } catch (e: any) {
       showNotification(`Scan failed: ${e.message}`);
@@ -254,7 +254,7 @@ export function App() {
     showNotification("🚀 Running comprehensive bulk sweep across portals for new offers...");
     try {
       const data = await runBulkJobSearch();
-      showNotification(`🎉 Bulk discovery completed! Scanned ${data.found || 0} offers, added ${data.added || 0} new eligible jobs.`);
+      showNotification(`Bulk complete: ${data.added || 0} new · ${data.expiredRemoved || 0} expired removed · ${data.uncertain || 0} uncertain`);
       await loadData();
     } catch (e: any) {
       showNotification(`Bulk discovery error: ${e.message}`);
@@ -692,43 +692,19 @@ export function App() {
 
       {/* Live AI Tailoring Progress Banner */}
       {isTailoring && (
-        <div
-          style={{
-            background: "linear-gradient(90deg, rgba(168, 85, 247, 0.15), rgba(56, 189, 248, 0.15))",
-            border: "1px solid rgba(168, 85, 247, 0.4)",
-            borderRadius: "8px",
-            padding: "14px 18px",
-            marginBottom: "16px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "12px"
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div className="tailoring-banner">
+          <div className="tailoring-banner-main">
             <span className="spinner" style={{ width: "16px", height: "16px" }} />
             <div>
-              <strong style={{ color: "#c084fc", fontSize: "0.95rem" }}>
-                AI Tailoring in Progress:
-              </strong>{" "}
-              <span style={{ color: "#e2e8f0", fontSize: "0.9rem" }}>
+              <strong>AI Tailoring in Progress:</strong>{" "}
+              <span>
                 {activity?.currentOp?.summary || `Tailoring with ${selectedProvider?.name || selectedProviderId} (${selectedModel})...`}
               </span>
             </div>
           </div>
-          <div style={{ fontSize: "0.8rem", color: "#94a3b8", display: "flex", gap: "8px" }}>
-            <span
-              className="badge"
-              style={{ background: "rgba(168, 85, 247, 0.2)", color: "#c084fc", border: "1px solid rgba(168, 85, 247, 0.3)" }}
-            >
-              {selectedProvider?.name || selectedProviderId} · {selectedModel}
-            </span>
-            <span
-              className="badge"
-              style={{ background: "rgba(52, 211, 153, 0.2)", color: "#34d399", border: "1px solid rgba(52, 211, 153, 0.3)" }}
-            >
-              Fact Gate Active
-            </span>
+          <div className="tailoring-banner-meta">
+            <span className="badge">{selectedProvider?.name || selectedProviderId} · {selectedModel}</span>
+            <span className="badge">Fact Gate Active</span>
           </div>
         </div>
       )}
@@ -739,7 +715,7 @@ export function App() {
         <div className="card">
           <div className="card-header">
             <div className="card-title">
-              <FileText size={18} color="#06b6d4" /> Section 2 — Master CV
+              <FileText size={18} /> Section 2 — Master CV
             </div>
             {status?.masterCv.mdExists ? (
               <span className="badge" style={{ background: "rgba(16, 185, 129, 0.2)", color: "#10b981", border: "1px solid #10b981" }}>
@@ -777,7 +753,7 @@ export function App() {
         <div className="card">
           <div className="card-header">
             <div className="card-title">
-              <Sparkles size={18} color="#a855f7" /> Section 3 — Tailored CVs ({tailoredCvs.length})
+              <Sparkles size={18} /> Section 3 — Tailored CVs ({tailoredCvs.length})
             </div>
             <button className="btn btn-outline btn-sm" onClick={() => handleOpen("cv-folder")}>
               <Folder size={14} /> Open CV Folder
@@ -842,9 +818,9 @@ export function App() {
       {activeTab === "pipeline" && <div className={`card pipeline-card ${pipelineView === "pending" ? "pipeline-grid" : ""}`}>
         <div className="card-header">
           <div className="card-title">
-            <Search size={18} color="#06b6d4" /> Section 1 — Search & Pipeline
+            <Search size={18} /> Section 1 — Search & Pipeline
           </div>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <div className="pipeline-actions">
             <button
               className="btn btn-primary"
               disabled={isScanning || isBulkScanning}
@@ -862,6 +838,15 @@ export function App() {
             >
               {isBulkScanning ? <span className="spinner" /> : <Zap size={14} />}
               Bulk Find New Offers
+            </button>
+            <button
+              className="btn btn-outline"
+              disabled={isReranking}
+              onClick={handleRerank}
+              title="Re-score all active jobs and load full JDs for the leading contenders"
+            >
+              {isReranking ? <span className="spinner" /> : <RefreshCw size={14} />}
+              Re-rank
             </button>
             <button className="btn btn-secondary" onClick={loadData}>
               <RefreshCw size={14} /> Refresh Pipeline
@@ -891,11 +876,13 @@ export function App() {
           </div>
           <div className="stat-box">
             <span className="stat-label">New Eligible Added</span>
-            <span className="stat-value" style={{ color: "#34d399" }}>
+            <span className="stat-value stat-value-positive">
               {status?.lastScan?.totalAdded ?? 0}
             </span>
           </div>
         </div>
+
+        <DiscoveryHealth compact refreshKey={status?.lastScan?.lastRun || ''} />
 
         {/* Filters and Tabs */}
         <div className="filter-bar" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -948,7 +935,7 @@ export function App() {
                 onClick={() => setMatchCategory(matchCategory === "BEST_MATCH" ? "ALL" : "BEST_MATCH")}
                 title="Filter offers matching your core Senior Frontend / React / TypeScript / E-Commerce profile"
               >
-                <Star size={13} fill={matchCategory === "BEST_MATCH" ? "#facc15" : "none"} />
+                <Star size={13} fill={matchCategory === "BEST_MATCH" ? "currentColor" : "none"} />
                 Best Matches ({bestMatchCount})
               </button>
               <button
@@ -995,9 +982,6 @@ export function App() {
                   ))}
                 </select>
               </label>
-              <button className="btn btn-outline btn-sm" disabled={isReranking} onClick={handleRerank} title="Re-score all active jobs and load full JDs for the leading contenders">
-                {isReranking ? <span className="spinner" /> : <RefreshCw size={13} />} Re-rank
-              </button>
               <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Model:</span>
               {(["ALL", "Remote", "Hybrid", "Office"] as const).map((m) => (
                 <button
@@ -1031,13 +1015,11 @@ export function App() {
           />
         )}
 
-        {pipelineView === "pending" && <>
+        {pipelineView === "pending" && (
           <label className="score-filter">Minimum score <select value={minimumScore} onChange={e => setMinimumScore(Number(e.target.value))}>
             {[0, 3, 3.5, 4, 4.5].map(score => <option key={score} value={score}>{score === 0 ? 'All scores' : `${score}+`}</option>)}
           </select></label>
-          {automation.toolbar(visibleJobs, filteredJobs.length)}
-        </>}
-        {automation.history}
+        )}
         {/* Pipeline Table */}
         <div className="table-container" style={{ display: pipelineView === "manual" ? "none" : "block" }}>
           <table className="jobs-table">
@@ -1110,7 +1092,7 @@ export function App() {
                           {job.manualEntry && <span className="badge badge-manual">MANUAL</span>}
                           {job.matchClassification && (
                             <span className={`badge-match badge-match-${job.matchClassification.toLowerCase().replaceAll(" ", "-")}`} title={job.reasonDisplay || job.reason}>
-                              {isBestMatchOffer(job) && <Star size={11} fill="#facc15" />}{job.matchClassification}
+                              {isBestMatchOffer(job) && <Star size={11} fill="currentColor" />}{job.matchClassification}
                             </span>
                           )}
                           {((job.title + " " + (job.extra || "")).toLowerCase().includes("magento") || (job.title + " " + (job.extra || "")).toLowerCase().includes("hyva")) && (
@@ -1126,7 +1108,7 @@ export function App() {
                         </div>
                         {(job.reasonDisplay || job.reason) && <button className="reason-toggle" title={job.reasonDisplay || job.reason} onClick={(event) => { event.stopPropagation(); handleSelectJob(job); }}>ⓘ Why this match</button>}
                       </td>
-                      <td style={{ color: "#38bdf8" }}>{job.company}</td>
+                      <td style={{ color: "var(--text-main)" }}>{job.company}</td>
                       <td>{job.location}</td>
                       <td>
                         <span
@@ -1176,44 +1158,47 @@ export function App() {
                         {job.manualEntry && job.addedAt && <div className="source-added">Added {new Date(job.addedAt).toLocaleString()}</div>}
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
-                        <div style={{ display: "flex", gap: "6px" }}>
-                          {automation.button(job)}
-                          {job.url.startsWith("http") && <button className="btn btn-outline btn-sm" title="Open external job URL" onClick={() => handleOpen("url", job.url)}><ExternalLink size={12} /></button>}
-                          <button
-                            className="btn btn-secondary btn-sm"
-                            title="Run LLM evaluation"
-                            disabled={isEvaluating === job.id}
-                            onClick={() => handleEvaluate(job)}
-                          >
-                            {isEvaluating === job.id ? <span className="spinner" /> : "Eval"}
-                          </button>
-                          <button
-                            className="btn btn-primary btn-sm"
-                            title="Generate AI-Tailored CV PDF"
-                            disabled={Boolean(activeOperation)}
-                            onClick={() => handleTailorCv(job)}
-                          >
-                            {jobOperation ? <><span className="spinner" /> {jobOperation.currentStage}</> : "Tailor CV"}
-                          </button>
-                          <button className="btn btn-outline btn-sm" title="Generate or view Cover Letter" disabled={Boolean(activeOperation)} onClick={() => void handleCoverLetter(job)}>
-                            Cover
-                          </button>
-                          {jobOperation && (
-                            <button className="btn btn-danger btn-sm" disabled={jobOperation.status === "CANCELLING" || cancellingOperationId === jobOperation.operationId} onClick={() => void handleCancelOperation(jobOperation.operationId)}>
-                              {jobOperation.status === "CANCELLING" || cancellingOperationId === jobOperation.operationId ? "Cancelling..." : "Cancel"}
-                            </button>
-                          )}
-                          {job.hasTailoredCv && (
+                        <div className="row-actions">
+                          <div className="row-actions-line">
+                            {automation.button(job)}
+                            {job.url.startsWith("http") && <button className="btn btn-outline btn-sm" title="Open external job URL" onClick={() => handleOpen("url", job.url)}><ExternalLink size={12} /></button>}
                             <button
-                              className="btn btn-outline btn-sm"
-                              style={{ borderColor: "rgba(56, 189, 248, 0.5)", color: "#38bdf8", padding: "4px 8px" }}
-                              title="View AI Tailoring Changes"
-                              disabled={isLoadingDiff}
-                              onClick={() => handleViewDiff(job)}
+                              className="btn btn-eval btn-sm"
+                              title="Run LLM evaluation"
+                              disabled={isEvaluating === job.id}
+                              onClick={() => handleEvaluate(job)}
                             >
-                              🔍 Changes
+                              {isEvaluating === job.id ? <span className="spinner" /> : "Eval"}
                             </button>
-                          )}
+                          </div>
+                          <div className="row-actions-line">
+                            <button
+                              className="btn btn-primary btn-sm"
+                              title="Generate AI-Tailored CV PDF"
+                              disabled={Boolean(activeOperation)}
+                              onClick={() => handleTailorCv(job)}
+                            >
+                              {jobOperation ? <><span className="spinner" /> {jobOperation.currentStage}</> : "Tailor CV"}
+                            </button>
+                            <button className="btn btn-cover btn-sm" title="Generate or view Cover Letter" disabled={Boolean(activeOperation)} onClick={() => void handleCoverLetter(job)}>
+                              Cover
+                            </button>
+                            {jobOperation && (
+                              <button className="btn btn-danger btn-sm" disabled={jobOperation.status === "CANCELLING" || cancellingOperationId === jobOperation.operationId} onClick={() => void handleCancelOperation(jobOperation.operationId)}>
+                                {jobOperation.status === "CANCELLING" || cancellingOperationId === jobOperation.operationId ? "Cancelling..." : "Cancel"}
+                              </button>
+                            )}
+                            {job.hasTailoredCv && (
+                              <button
+                                className="btn btn-outline btn-sm"
+                                title="View AI Tailoring Changes"
+                                disabled={isLoadingDiff}
+                                onClick={() => handleViewDiff(job)}
+                              >
+                                Changes
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -1223,6 +1208,8 @@ export function App() {
             </tbody>
           </table>
         </div>
+        {pipelineView === "pending" && automation.toolbar(visibleJobs, filteredJobs.length)}
+        {automation.history}
       </div>}
 
       {activeTab === "applied" && (
@@ -1304,7 +1291,7 @@ export function App() {
               <tbody>
                 {appliedJobs.map((job) => (
                   <tr key={job.id} onClick={() => handleSelectJob(job)} style={{ cursor: "pointer" }}>
-                    <td style={{ color: "#38bdf8", fontWeight: 600 }}>{job.company}</td>
+                    <td style={{ color: "var(--text-main)", fontWeight: 600 }}>{job.company}</td>
                     <td>{job.title}</td>
                     <td>{job.location || "—"}</td>
                     <td>{job.date || (job.addedAt ? new Date(job.addedAt).toLocaleDateString() : "—")}</td>
@@ -1563,7 +1550,7 @@ export function App() {
 
               {selectedJob.strengths && selectedJob.strengths.length > 0 && (
                 <div>
-                  <div style={{ fontSize: "12px", color: "#34d399", fontWeight: 600, marginBottom: "4px" }}>
+                  <div style={{ fontSize: "12px", color: "var(--text-main)", fontWeight: 600, marginBottom: "4px" }}>
                     Matching Strengths:
                   </div>
                   <div className="list-tags">
@@ -1642,7 +1629,7 @@ export function App() {
                 {selectedJob.hasTailoredCv && (
                   <button
                     className="btn btn-outline"
-                    style={{ borderColor: "rgba(56, 189, 248, 0.5)", color: "#38bdf8" }}
+                    style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
                     onClick={() => handleViewDiff(selectedJob)}
                   >
                     🔍 View Tailoring Changes
@@ -1709,7 +1696,7 @@ export function App() {
                   <span>🎯 AI Tailoring Changes</span>
                   <span
                     className="badge"
-                    style={{ background: "rgba(168, 85, 247, 0.2)", color: "#c084fc", border: "1px solid rgba(168, 85, 247, 0.4)" }}
+                    style={{ background: "rgba(168, 85, 247, 0.2)", color: "var(--text-main)", border: "1px solid rgba(168, 85, 247, 0.4)" }}
                   >
                     {viewingDiff.aiModel || viewingDiff.model || "Default"}
                   </span>
@@ -1737,14 +1724,14 @@ export function App() {
                   fontSize: "0.85rem"
                 }}
               >
-                <div><strong>Tailored with AI:</strong> <span style={{ color: "#34d399" }}>Yes</span></div>
+                <div><strong>Tailored with AI:</strong> <span style={{ color: "var(--text-main)" }}>Yes</span></div>
                 <div><strong>Provider:</strong> {viewingDiff.aiProvider}</div>
-                <div><strong>Fact Check:</strong> <span style={{ color: "#34d399" }}>{viewingDiff.factValidation}</span></div>
+                <div><strong>Fact Check:</strong> <span style={{ color: "var(--text-main)" }}>{viewingDiff.factValidation}</span></div>
                 <div><strong>Page Budget:</strong> {viewingDiff.pages} pages</div>
                 {(viewingDiff.primaryDomain || viewingDiff.tailoringDiff?.primary_domain) && (
                   <div>
                     <strong>Primary domain:</strong>{" "}
-                    <span style={{ color: "#c084fc" }}>
+                    <span style={{ color: "var(--text-main)" }}>
                       {viewingDiff.primaryDomain || viewingDiff.tailoringDiff?.primary_domain}
                     </span>
                   </div>
@@ -1752,8 +1739,8 @@ export function App() {
               </div>
 
               {/* Summary Focus */}
-              <div style={{ background: "rgba(56, 189, 248, 0.05)", border: "1px solid rgba(56, 189, 248, 0.25)", padding: "14px 16px", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 8px 0", color: "#38bdf8", fontSize: "0.95rem" }}>📝 Professional Summary Focus</h4>
+              <div style={{ background: "var(--bg-primary)", border: "1px solid var(--border)", padding: "14px 16px", borderRadius: "8px" }}>
+                <h4 style={{ margin: "0 0 8px 0", color: "var(--text-muted)", fontSize: "0.95rem" }}>📝 Professional Summary Focus</h4>
                 <p style={{ margin: 0, fontSize: "0.9rem", lineHeight: "1.5", color: "#e2e8f0" }}>
                   {viewingDiff.tailoringDiff?.summary_focus || "Summary adapted specifically to this vacancy."}
                 </p>
@@ -1767,7 +1754,7 @@ export function App() {
                     <span
                       key={idx}
                       className="badge"
-                      style={{ background: "rgba(251, 191, 36, 0.15)", color: "#fbbf24", border: "1px solid rgba(251, 191, 36, 0.3)" }}
+                      style={{ background: "var(--bg-hover)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
                     >
                       {sk}
                     </span>
@@ -1777,7 +1764,7 @@ export function App() {
 
               {/* Skills Intentionally Omitted (Focused CV) */}
               {viewingDiff.tailoringDiff?.skills_omitted && viewingDiff.tailoringDiff.skills_omitted.length > 0 && (
-                <div style={{ background: "rgba(239, 68, 68, 0.05)", border: "1px solid rgba(239, 68, 68, 0.2)", padding: "14px 16px", borderRadius: "8px" }}>
+                <div style={{ background: "var(--bg-primary)", border: "1px solid var(--border)", padding: "14px 16px", borderRadius: "8px" }}>
                   <h4 style={{ margin: "0 0 8px 0", color: "#f87171", fontSize: "0.95rem" }}>🚫 Intentionally Omitted Skills (Focused CV)</h4>
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                     {viewingDiff.tailoringDiff.skills_omitted.map((item, idx) => (
@@ -1792,14 +1779,14 @@ export function App() {
 
               {/* Selected Projects */}
               <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)", padding: "14px 16px", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 8px 0", color: "#a855f7", fontSize: "0.95rem" }}>🚀 Selected Projects from Knowledge Base</h4>
+                <h4 style={{ margin: "0 0 8px 0", color: "var(--text-muted)", fontSize: "0.95rem" }}>🚀 Selected Projects from Knowledge Base</h4>
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   {viewingDiff.tailoringDiff?.projects_selected?.map((p, idx) => (
                     <div
                       key={idx}
                       style={{ padding: "8px 12px", background: "rgba(255,255,255,0.02)", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.05)" }}
                     >
-                      <strong style={{ color: "#c084fc" }}>{p.name}</strong>
+                      <strong style={{ color: "var(--text-main)" }}>{p.name}</strong>
                       <div style={{ fontSize: "0.85rem", color: "#94a3b8", marginTop: "2px" }}>{p.reason}</div>
                     </div>
                   ))}
@@ -1808,13 +1795,13 @@ export function App() {
 
               {/* JD Keywords Matched */}
               <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)", padding: "14px 16px", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 8px 0", color: "#34d399", fontSize: "0.95rem" }}>🎯 Key JD Requirements Addressed</h4>
+                <h4 style={{ margin: "0 0 8px 0", color: "var(--text-main)", fontSize: "0.95rem" }}>🎯 Key JD Requirements Addressed</h4>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                   {viewingDiff.tailoringDiff?.jd_keywords_matched?.map((kw, idx) => (
                     <span
                       key={idx}
                       className="badge"
-                      style={{ background: "rgba(52, 211, 153, 0.15)", color: "#34d399", border: "1px solid rgba(52, 211, 153, 0.3)" }}
+                      style={{ background: "rgba(52, 211, 153, 0.15)", color: "var(--text-main)", border: "1px solid rgba(52, 211, 153, 0.3)" }}
                     >
                       {kw}
                     </span>
@@ -1852,14 +1839,14 @@ export function App() {
       {activeTab === "pipeline" && <div className="activity-panel">
         <div className="activity-header">
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <Clock size={16} color="#06b6d4" />
+            <Clock size={16} />
             <span>Section 5 — Activity & Engine Status:</span>
             {activeOperation ? (
-              <span style={{ color: "#38bdf8", display: "flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "6px" }}>
                 <span className="spinner" /> {activeOperation.type === "COVER_LETTER" ? "Cover Letter" : "Tailored CV"} — {activeOperation.currentStage}
               </span>
             ) : (
-              <span style={{ color: "#34d399" }}>Idle · Ready</span>
+              <span style={{ color: "var(--text-main)" }}>Idle · Ready</span>
             )}
           </div>
 
