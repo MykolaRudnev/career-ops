@@ -1226,8 +1226,14 @@ async function main() {
 
 // Only run main() when invoked directly, not when imported by tests.
 if (isMainModule(import.meta.url)) {
-  main().catch(err => {
-    console.error('Fatal:', err.message);
-    process.exit(1);
-  });
+  // Force-exit after main(): undici/fetch keep-alive sockets otherwise keep the
+  // event loop alive after a finished sweep. discover-jobs.mjs waits on the
+  // child's 'close' before reconcile + discovery-receipt.json, so a leaked
+  // socket looks like a hung Bulk Find New Offers spinner with a stale LAST SCAN.
+  main()
+    .then(() => { process.exit(process.exitCode ?? 0); })
+    .catch(err => {
+      console.error('Fatal:', err.message);
+      process.exit(1);
+    });
 }

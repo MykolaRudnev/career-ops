@@ -153,7 +153,9 @@ class CareerOpsManager {
 
     return new Promise((resolve) => {
       const startTime = Date.now();
-      exec("node discover-jobs.mjs --refresh --json", { cwd: WORKSPACE_ROOT, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+      // 64MB: stderr progress from dual-lane discovery can exceed the Node
+      // default 1MB / old 10MB cap and SIGTERM the child mid-ATS (stale receipt).
+      exec("node discover-jobs.mjs --refresh --json", { cwd: WORKSPACE_ROOT, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (err) {
           this.recordOpEnd(op, "failed", stdout, stderr, `Scan failed: ${err.message}`);
           return resolve({ success: false, error: err.message });
@@ -183,7 +185,7 @@ class CareerOpsManager {
     const op = this.recordOpStart("Bulk Job Discovery Sweep", "Sweeping all portals and ATS sources for new offers");
 
     return new Promise((resolve) => {
-      exec("node discover-jobs.mjs --bulk --refresh --json", { cwd: WORKSPACE_ROOT, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+      exec("node discover-jobs.mjs --bulk --refresh --json", { cwd: WORKSPACE_ROOT, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (err) {
           this.recordOpEnd(op, "failed", stdout, stderr, `Bulk sweep failed: ${err.message}`);
           return resolve({ success: false, error: err.message });

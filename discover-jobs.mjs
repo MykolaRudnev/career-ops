@@ -102,8 +102,17 @@ async function main() {
   const args = process.argv.slice(2);
   const value = flag => { const index = args.indexOf(flag); return index >= 0 ? args[index + 1] : undefined; };
   const receipt = await discoverJobs({ bulk: args.includes('--bulk'), dryRun: args.includes('--dry-run'), refresh: args.includes('--refresh'), sinceDays: Number(value('--since')) || undefined, ats: value('--ats'), limit: Number(value('--limit')) || undefined });
-  if (args.includes('--json')) process.stdout.write(`${JSON.stringify(receipt)}\n`);
-  else console.log(`SCAN COMPLETE\nSources attempted: ${receipt.sourcesAttempted}\nHealthy: ${receipt.healthy} · Degraded: ${receipt.degraded} · Blocked: ${receipt.blocked}\nFetched/relevant: ${receipt.found}\nDuplicates: ${receipt.duplicates}\nNew jobs: ${receipt.added}\nExisting Pending checked: ${receipt.existingPendingChecked}\nExpired removed: ${receipt.expiredRemoved}\nUncertain: ${receipt.uncertain}`);
-  if (receipt.status === 'ERROR') process.exitCode = 1;
+  if (args.includes('--json')) {
+    // Dashboard only needs summary counters (then reloads pipeline from disk).
+    // Omitting offers keeps stdout under exec maxBuffer; the on-disk receipt
+    // already drops offers for the same reason.
+    const { offers: _offers, ...summary } = receipt;
+    process.stdout.write(`${JSON.stringify(summary)}\n`);
+  } else {
+    console.log(`SCAN COMPLETE\nSources attempted: ${receipt.sourcesAttempted}\nHealthy: ${receipt.healthy} · Degraded: ${receipt.degraded} · Blocked: ${receipt.blocked}\nFetched/relevant: ${receipt.found}\nDuplicates: ${receipt.duplicates}\nNew jobs: ${receipt.added}\nExisting Pending checked: ${receipt.existingPendingChecked}\nExpired removed: ${receipt.expiredRemoved}\nUncertain: ${receipt.uncertain}`);
+  }
+  // Same keep-alive hazard as scan-ats-full: force-exit so the dashboard's
+  // exec() callback fires and LAST SCAN / discovery-receipt.json stay in sync.
+  process.exit(receipt.status === 'ERROR' ? 1 : 0);
 }
-if (isMainModule(import.meta.url)) main().catch(error => { console.error(error.stack || error.message); process.exitCode = 1; });
+if (isMainModule(import.meta.url)) main().catch(error => { console.error(error.stack || error.message); process.exit(1); });
