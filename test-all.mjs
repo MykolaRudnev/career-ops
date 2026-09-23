@@ -349,6 +349,7 @@ const scripts = [
   { name: 'story-provenance-check.mjs --self-test', expectExit: 0 },
   { name: 'verify-cv-facts.mjs --self-test', expectExit: 0 },
   { name: 'verify-ats.mjs --self-test', expectExit: 0 },
+  { name: 'resume-quality-check.mjs --self-test', expectExit: 0 },
   { name: 'contacts.mjs --self-test', expectExit: 0 },
   { name: 'company-funded.mjs --self-test', expectExit: 0 },
   { name: 'invite-match.mjs --self-test', expectExit: 0 },

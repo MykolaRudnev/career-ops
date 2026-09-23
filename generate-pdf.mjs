@@ -4,7 +4,7 @@
  * generate-pdf.mjs — HTML → PDF via Playwright
  *
  * Usage:
- *   node career-ops/generate-pdf.mjs <input.html> <output.pdf> [--format=letter|a4] [--report=NNN] [--allow-reorder] [--max-pages=N] [--strict-pages] [--skip-fact-check]
+ *   node career-ops/generate-pdf.mjs <input.html> <output.pdf> [--format=letter|a4] [--report=NNN] [--jd=path] [--role=title] [--domain=name] [--allow-reorder] [--max-pages=N] [--strict-pages] [--skip-fact-check]
  *   node career-ops/generate-pdf.mjs --batch=<manifest.json> [--format=letter|a4] [--allow-reorder] [--max-pages=N] [--strict-pages]
  *
  * --batch renders every document in a JSON manifest (an array of
@@ -1160,6 +1160,7 @@ async function generatePDF() {
   const args = process.argv.slice(2);
   let skipFactCheck = false;
   const factSourcePaths = [];
+  let jdPath = '', vacancyRole = '', primaryDomain = '';
 
   // Parse arguments
   let inputPath, outputPath, format = 'a4', reportNum = '', allowReorder = false;
@@ -1177,6 +1178,12 @@ async function generatePDF() {
       maxPages = Number(maxPagesInput);
     } else if (arg.startsWith('--source=')) {
       factSourcePaths.push(arg.slice('--source='.length));
+    } else if (arg.startsWith('--jd=')) {
+      jdPath = arg.slice('--jd='.length);
+    } else if (arg.startsWith('--role=')) {
+      vacancyRole = arg.slice('--role='.length);
+    } else if (arg.startsWith('--domain=')) {
+      primaryDomain = arg.slice('--domain='.length);
     } else if (arg === '--allow-reorder') {
       allowReorder = true;
     } else if (arg === '--strict-pages') {
@@ -1212,7 +1219,7 @@ async function generatePDF() {
   }
 
   if (!inputPath || !outputPath) {
-    console.error('Usage: node generate-pdf.mjs <input.html> <output.pdf> [--format=letter|a4] [--report=NNN] [--allow-reorder] [--max-pages=N] [--strict-pages]');
+    console.error('Usage: node generate-pdf.mjs <input.html> <output.pdf> [--format=letter|a4] [--report=NNN] [--jd=path] [--role=title] [--domain=name] [--allow-reorder] [--max-pages=N] [--strict-pages]');
     console.error('   or: node generate-pdf.mjs --batch=<manifest.json> [--format=letter|a4] [--allow-reorder] [--max-pages=N] [--strict-pages]');
     console.error('');
     console.error('Batch mode renders every document in the JSON manifest (an array of');
@@ -1290,33 +1297,22 @@ async function generatePDF() {
     console.log(`🧹 ATS normalization: ${totalReplacements} replacements (${breakdown})`);
   }
 
-  // Fact gate. generate-cover-letter.mjs already blocks on assertFacts before
-  // importing Playwright, on the reasoning that a failed gate must not leave a
-  // misleading artifact behind. A tailored CV is the same class of document and
-  // carries the numbers a reader acts on, but the CV path enforced the gate only
-  // as an instructed step in the mode prompts — so a programmatic caller (a
-  // bridge, a script, a batch run) rendered inflated metrics in silence. Gate the
-  // normalized HTML, which is the document that actually prints.
-  if (!skipFactCheck && cvMarkdown) {
-    // Imported lazily, INSIDE the guard. A static import is resolved at module
-    // load whether or not this branch runs, and the page-budget/batch suites copy
-    // generate-pdf.mjs alone into a temp workspace — a static import of a sibling
-    // that isn't copied made every one of those suites die with
-    // ERR_MODULE_NOT_FOUND before reaching the behaviour under test. Those
-    // fixtures also ship no cv.md, so this branch is never entered there. If the
-    // module is genuinely missing in a real workspace this throws and the render
-    // fails, which is the correct direction to fail for a fact gate.
-    const { assertFacts } = await import('./verify-cv-facts.mjs');
-    const factCheck = assertFacts(html, {
-      label: basename(inputPath),
-      ...(factSourcePaths.length ? { sourcePaths: factSourcePaths } : {}),
+  // Final deterministic quality gate. Kept as a lazy import for the same reason
+  // the old fact gate was: renderer-only fixtures copy this module without the
+  // surrounding career-ops checkout. A real CV workspace always has cv.md.
+  let qualityReport = null;
+  if (cvMarkdown) {
+    const quality = await import('./resume-quality-check.mjs');
+    qualityReport = quality.auditResumeHtml(html, {
+      inputPath,
+      workspaceRoot,
+      jdPath: jdPath ? resolve(jdPath) : '',
+      role: vacancyRole,
+      domain: primaryDomain,
+      factSourcePaths,
+      skipFactCheck,
     });
-    if (factCheck.verdict === 'warn') {
-      console.warn(`⚠️  CV fact check warning: ${basename(inputPath)}`);
-      for (const phrase of factCheck.warnings) console.warn(`  - advisory phrase: ${phrase}`);
-    } else {
-      console.log('✅ Fact check passed');
-    }
+    quality.assertResumeQuality(qualityReport);
   }
 
   return renderHtmlToPdf(html, outputPath, {
@@ -1326,6 +1322,7 @@ async function generatePDF() {
     inputPath,
     maxPages,
     strictPages,
+    qualityReport,
     styleTokens: readStyleTokens(resolve(workspaceRoot, 'config', 'profile.yml')),
   });
 }
@@ -1402,6 +1399,7 @@ async function runBatchFromManifest(manifestPath, globals) {
   // single render is: it is the anchor readStyleTokens() and the cv.md read
   // already use, so one profile.yml supplies every setting.
   const cvSectionOrder = readCvSectionOrder(resolve(workspaceRoot, 'config', 'profile.yml'));
+  const quality = cvMarkdown ? await import('./resume-quality-check.mjs') : null;
 
   for (let i = 0; i < manifest.length; i++) {
     const spec = manifest[i];
@@ -1444,6 +1442,17 @@ async function runBatchFromManifest(manifestPath, globals) {
       validateCvSectionOrder(html, cvMarkdown, { allowReorder: globals.allowReorder });
       html = normalizeTextForATS(html).html;
 
+      const qualityReport = quality?.auditResumeHtml(html, {
+        inputPath: entryInput,
+        workspaceRoot,
+        jdPath: spec.jd ? resolve(manifestDir, spec.jd) : '',
+        role: spec.role || '',
+        domain: spec.domain || '',
+        factSourcePaths: Array.isArray(spec.sourcePaths) ? spec.sourcePaths : [],
+        skipFactCheck: spec.skipFactCheck === true,
+      }) || null;
+      if (qualityReport) quality.assertResumeQuality(qualityReport);
+
       entries.push({
         _idx: i,
         html,
@@ -1454,6 +1463,7 @@ async function runBatchFromManifest(manifestPath, globals) {
         inputPath: entryInput,
         maxPages: globals.maxPages,
         strictPages: globals.strictPages,
+        qualityReport,
       });
     } catch (err) {
       console.error(`❌ Skipping batch entry ${i} (${spec?.output ?? '?'}): ${err.message}`);
@@ -1582,6 +1592,7 @@ export async function inlineLocalFonts(html) {
  *   workspaceRoot?: string,
  *   maxPages?: number,
  *   strictPages?: boolean,
+ *   qualityReport?: object|null,
  *   launchBrowser?: (options: {headless: boolean}) => Promise<import('playwright').Browser>
  * }} [opts]
  * @returns {Promise<{outputPath: string, pageCount: number, size: number}>}
@@ -1623,6 +1634,7 @@ export async function renderHtmlToPdf(html, outputPath, opts = {}) {
  *   inputPath?: string,
  *   maxPages?: number,
  *   strictPages?: boolean,
+ *   qualityReport?: object|null,
  *   styleTokens?: object
  * }} [opts]
  * @returns {Promise<{outputPath: string, pageCount: number, size: number}>}
@@ -1722,6 +1734,19 @@ async function renderInPage(browser, html, outputPath, opts = {}) {
     // Read the root page-tree count so page-like text in streams is ignored.
     const pageCount = countRenderedPdfPages(pdfBuffer);
 
+    let qualityPath = '';
+    let qualityReport = opts.qualityReport || null;
+    if (qualityReport) {
+      const quality = await import('./resume-quality-check.mjs');
+      qualityReport = quality.auditRenderedPdf(qualityReport, outputPath, pageCount, {
+        expectedPages: opts.maxPages ?? 2,
+      });
+      qualityPath = quality.qualityReportPath(outputPath);
+      quality.writeResumeQualityReport(qualityReport, qualityPath);
+      quality.logResumeQualityReport(qualityReport);
+      quality.assertResumeQuality(qualityReport);
+    }
+
     // Strict overflow leaves the draft on disk but stops before success logs
     // and manifest publication. Default overflow warns and continues.
     enforcePageBudget(pageCount, {
@@ -1741,7 +1766,7 @@ async function renderInPage(browser, html, outputPath, opts = {}) {
       console.error(`⚠️  Manifest update failed: ${err.message}`);
     }
 
-    return { outputPath, pageCount, size: pdfBuffer.length };
+    return { outputPath, pageCount, size: pdfBuffer.length, qualityReport, qualityPath };
   } finally {
     // Close the page so a batch does not accumulate pages into the shared
     // browser (leak → OOM). Optional-chained: the single path's browser.close()
@@ -1810,7 +1835,7 @@ export async function renderBatch(entries, opts = {}) {
     for (const entry of entries) {
       try {
         const r = await renderInPage(browser, entry.html, entry.outputPath, entry);
-        results.push({ outputPath: entry.outputPath, ok: true, pageCount: r.pageCount, size: r.size });
+        results.push({ outputPath: entry.outputPath, ok: true, pageCount: r.pageCount, size: r.size, quality: r.qualityReport, qualityPath: r.qualityPath });
       } catch (err) {
         console.error(`❌ Batch entry failed (${entry.outputPath}): ${err.message}`);
         results.push({ outputPath: entry.outputPath, ok: false, error: err.message });
