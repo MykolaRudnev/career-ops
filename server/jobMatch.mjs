@@ -558,6 +558,17 @@ export function analyzeJobMatch(job, fullDescription = "") {
       recommendation = "SKIP";
       tier = "C";
     }
+    // A dedicated React/Next title with no JD yet is the primary archetype.
+    // Keep it out of BEST MATCH until the description confirms scope.
+    const descriptionThin = String(fullDescription || "").trim().length < 40;
+    if (!blocked && descriptionThin && pureFrontendTitle && (titleBits.react || titleBits.next)) {
+      compatibilityPercent = Math.max(compatibilityPercent, 84);
+      classification = "STRONG MATCH";
+      recommendation = "APPLY";
+      tier = "A";
+      rankingCategory = "pure-frontend";
+      reason = "react title | preliminary frontend match until the full JD is loaded";
+    }
     scoreBreakdown.rawScore = rawScore;
     scoreBreakdown.adjustment = compatibilityPercent - rawScore;
     scoreBreakdown.finalScore = compatibilityPercent;

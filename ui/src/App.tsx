@@ -77,7 +77,7 @@ export function App() {
   const [providerTest, setProviderTest] = useState<AiProviderTestResult | null>(null);
 
   const [activeTab, setActiveTab] = useState<"pipeline" | "applied" | "cvs" | "settings">("pipeline");
-  const [pipelineView, setPipelineView] = useState<"pending" | "manual">("pending");
+  const [pipelineView, setPipelineView] = useState<"pending" | "evaluated" | "manual">("pending");
   const [appliedStatus, setAppliedStatus] = useState<"ALL" | "No Response" | "Rejected" | "Interview" | "Offer">("ALL");
   const [appliedSortColumn, setAppliedSortColumn] = useState<AppliedSortColumn>("date");
   const [appliedSortDirection, setAppliedSortDirection] = useState<"asc" | "desc">("desc");
@@ -416,7 +416,8 @@ export function App() {
     }
   };
 
-  const currentList = pendingJobs;
+  const evaluatedJobs = processedJobs.filter((job) => job.pipelineScore != null && job.status !== "skipped" && job.status !== "expired");
+  const currentList = pipelineView === "evaluated" ? evaluatedJobs : pendingJobs;
   const activeOperation = operations.find((item) => ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
   const activeCvOperation = operations.find((item) => item.type === "TAILORED_CV" && ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
   const activeCoverOperation = operations.find((item) => item.type === "COVER_LETTER" && ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
@@ -900,10 +901,16 @@ export function App() {
                 Pending Offers ({pendingJobs.length})
               </button>
               <button
+                className={`tab-btn ${pipelineView === "evaluated" ? "active" : ""}`}
+                onClick={() => { setActiveTab("pipeline"); setPipelineView("evaluated"); }}
+              >
+                Evaluated ({evaluatedJobs.length})
+              </button>
+              <button
                 className="tab-btn"
                 onClick={() => setActiveTab("applied")}
               >
-                Applied ({processedJobs.length})
+                Applied ({processedJobs.filter((job) => job.status === "applied").length})
               </button>
               <button
                 className={`tab-btn ${pipelineView === "manual" ? "active" : ""}`}
@@ -1035,7 +1042,7 @@ export function App() {
           />
         )}
 
-        {pipelineView === "pending" && (
+        {(pipelineView === "pending" || pipelineView === "evaluated") && (
           <label className="score-filter">Minimum score <select value={minimumScore} onChange={e => setMinimumScore(Number(e.target.value))}>
             {[0, 3, 3.5, 4, 4.5].map(score => <option key={score} value={score}>{score === 0 ? 'All scores' : `${score}+`}</option>)}
           </select></label>
@@ -1110,6 +1117,11 @@ export function App() {
                         <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                           <span>{job.title}</span>
                           {job.manualEntry && <span className="badge badge-manual">MANUAL</span>}
+                          {job.reportNumber && (
+                            <span className="badge" style={{ background: "rgba(56, 189, 248, 0.15)", color: "#7dd3fc", border: "1px solid rgba(56, 189, 248, 0.35)", fontSize: "11px", padding: "1.5px 6px", borderRadius: "4px" }}>
+                              #{job.reportNumber}
+                            </span>
+                          )}
                           {job.matchClassification && (
                             <span className={`badge-match badge-match-${job.matchClassification.toLowerCase().replaceAll(" ", "-")}`} title={job.reasonDisplay || job.reason}>
                               {isBestMatchOffer(job) && <Star size={11} fill="currentColor" />}{job.matchClassification}
@@ -1170,7 +1182,7 @@ export function App() {
                                 : "#cbd5e1"
                           }}
                         >
-                          {job.status}
+                          {job.pipelineScore != null ? "evaluated" : job.status}
                         </span>
                       </td>
                       <td>

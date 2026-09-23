@@ -22,6 +22,8 @@ export interface PipelineJob {
   primaryStack?: string[];
   responsibilitySplit?: { frontend: string; backend: string; platform: string };
   evaluatedFrom?: "full-jd" | "pipeline-summary";
+  reportNumber?: string;
+  pipelineScore?: number;
   salary?: string;
   bid?: string;
   hasTailoredCv?: boolean;
@@ -214,7 +216,8 @@ export async function runBulkJobSearch(): Promise<any> {
 }
 
 export function isBestMatchOffer(job: PipelineJob): boolean {
-  return job.matchClassification === "BEST MATCH";
+  return job.matchClassification === "BEST MATCH"
+    || (job.matchClassification === "STRONG MATCH" && (job.recommendation === "APPLY" || (job.fitScore || 0) >= 4));
 }
 
 export async function rerankPipeline(fullJdLimit = 60): Promise<any> {

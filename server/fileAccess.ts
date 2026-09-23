@@ -47,6 +47,8 @@ export interface PipelineJob {
   primaryStack?: string[];
   responsibilitySplit?: { frontend: string; backend: string; platform: string };
   evaluatedFrom?: "full-jd" | "pipeline-summary";
+  reportNumber?: string;
+  pipelineScore?: number;
   salary?: string;
   hasTailoredCv?: boolean;
   tailoredPdfPath?: string;
@@ -57,6 +59,26 @@ export interface PipelineJob {
   description?: string;
   sourceName?: string;
   notes?: string;
+}
+
+function splitPipelineFields(raw: string) {
+  let parts = raw.split(" | ").map(p => p.trim()).filter(Boolean);
+  let reportNumber: string | undefined;
+  const report = (parts[0] || "").match(/^#(\d+)$/) || (parts[0] || "").match(/^\[(\d+)\]\(/);
+  if ((report || (parts[0] || "") === "#--") && /^https?:\/\/|^manual:/.test(parts[1] || "")) {
+    if (report) reportNumber = report[1];
+    parts = parts.slice(1);
+  }
+  if (!/^https?:\/\/|^manual:/.test(parts[0] || "")) return null;
+  const [url, company = "", title = "", fourth = ""] = parts;
+  const score = fourth.match(/^(\d+(?:\.\d+)?)\/5$/);
+  if (score) {
+    return { url, company, title, location: "", extra: parts.slice(4).join(" | "), reportNumber, pipelineScore: Number(score[1]) };
+  }
+  if (/^skipped\b/i.test(fourth)) {
+    return { url, company, title, location: "", extra: parts.slice(3).join(" | "), reportNumber, pipelineScore: undefined };
+  }
+  return { url, company, title, location: fourth, extra: parts.slice(4).join(" | "), reportNumber, pipelineScore: undefined as number | undefined };
 }
 
 export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJob[] } {
@@ -99,13 +121,10 @@ export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJo
     const trimmed = line.trim();
     if (trimmed.startsWith("- [ ]") || trimmed.startsWith("- [x]")) {
       const raw = trimmed.substring(5).trim();
-      const parts = raw.split(" | ").map(p => p.trim());
-      if (parts.length >= 3) {
-        const url = parts[0];
-        const company = parts[1];
-        const title = parts[2];
-        const location = parts[3] || "";
-        const extra = parts.slice(4).join(" | ");
+      const parsed = splitPipelineFields(raw);
+      if (!parsed) continue;
+      const { url, company, title, location, extra, reportNumber, pipelineScore } = parsed;
+      if (url && company && title) {
 
         let workModel = "Office";
         const locLower = (location + " " + extra).toLowerCase();
@@ -113,6 +132,8 @@ export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJo
           workModel = "Remote";
         } else if (locLower.includes("hybrid") || locLower.includes("hybryd")) {
           workModel = "Hybrid";
+        } else if (pipelineScore != null && !location.trim()) {
+          workModel = "—";
         }
 
         let date = "";
@@ -120,8 +141,9 @@ export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJo
         if (dateMatch) date = dateMatch[1];
 
         let status: "pending" | "reviewed" | "applied" | "skipped" | "expired" = currentSection === "pending" ? "pending" : "reviewed";
+        if (pipelineScore != null) status = "reviewed";
         if (extra.includes("applied")) status = "applied";
-        if (extra.includes("skipped")) status = "skipped";
+        if (/skipped/i.test(extra)) status = "skipped";
         if (/status:\s*(expired|closed)/i.test(extra)) status = "expired";
 
         // Check if there is a tailored PDF matching company
@@ -159,6 +181,16 @@ export function parsePipeline(): { pending: PipelineJob[]; processed: PipelineJo
           status,
           extra,
           bid,
+          reportNumber,
+          pipelineScore,
+          ...(pipelineScore != null ? {
+            fitScore: pipelineScore,
+            compatibilityPercent: Math.round((pipelineScore - 1) * 25),
+            matchClassification: (pipelineScore >= 4.5 ? "BEST MATCH" : pipelineScore >= 4.0 ? "STRONG MATCH" : pipelineScore >= 3.0 ? "POSSIBLE MATCH" : "LOW MATCH") as PipelineJob["matchClassification"],
+            recommendation: (pipelineScore >= 4.0 ? "APPLY" : pipelineScore >= 3.0 ? "REVIEW" : "SKIP") as PipelineJob["recommendation"],
+            evaluatedFrom: "full-jd" as const,
+            reason: `A-F report${reportNumber ? ` #${reportNumber}` : ""} · ${pipelineScore}/5`
+          } : {}),
           hasTailoredCv,
           tailoredPdfPath,
           ...(manual ? {

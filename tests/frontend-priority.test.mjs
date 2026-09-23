@@ -62,6 +62,15 @@ test("Mid frontend remains competitive and Node keywords earn no bonus", () => {
   assert.equal(run("Mid Frontend Developer", jd + "\nNode.js is optional.").compatibilityPercent, mid.compatibilityPercent);
 });
 
+test("a React title with no JD is a strong preliminary match, not a 3.4 possible", () => {
+  const r = run("Senior React Developer", "");
+  assert.equal(r.matchClassification, "STRONG MATCH");
+  assert.equal(r.recommendation, "APPLY");
+  assert.ok(r.fitScore >= 4.2 && r.fitScore <= 4.5, `got ${r.fitScore}`);
+  assert.notEqual(run("Senior React Native Developer", "").matchClassification, "STRONG MATCH");
+  assert.notEqual(run("Frontend Developer", "Join our team.").matchClassification, "BEST MATCH");
+});
+
 test("score components reconcile to the displayed percentage", () => {
   const r = run("Frontend Developer");
   const b = r.scoreBreakdown;

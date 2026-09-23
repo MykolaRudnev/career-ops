@@ -17,7 +17,7 @@ import { OperationCancelledError, ProcessTimeoutError } from "./process.ts";
 import { generateCoverLetter as generateCoverArtifact } from "./coverLetter.ts";
 import { artifactDirectories } from "./jobArtifacts.ts";
 
-const JOB_MATCH_VERSION = 5;
+const JOB_MATCH_VERSION = 6;
 
 function findLocalJobDescription(job: { url?: string; company?: string; title?: string; description?: string }, strictIdentity = false): string {
   if (String(job.description || "").trim().length >= 40) return String(job.description).trim();

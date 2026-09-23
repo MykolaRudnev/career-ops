@@ -126,10 +126,23 @@ app.get("/api/pipeline", (req, res) => {
     // Attach cached evaluations
     const enrich = (job: any) => {
       const evalData = careerOps.getEvaluationForDisplay(job);
-      if (evalData) {
-        return { ...job, ...evalData };
-      }
-      return job;
+      const merged = evalData ? { ...job, ...evalData } : job;
+      if (job.pipelineScore == null) return merged;
+      const score = job.pipelineScore;
+      const matchClassification = score >= 4.5 ? "BEST MATCH" : score >= 4.0 ? "STRONG MATCH" : score >= 3.0 ? "POSSIBLE MATCH" : "LOW MATCH";
+      return {
+        ...merged,
+        fitScore: score,
+        compatibilityPercent: Math.round((score - 1) * 25),
+        matchClassification,
+        compatibilityTier: score >= 4.0 ? "A" : score >= 3.0 ? "B" : "C",
+        recommendation: score >= 4.0 ? "APPLY" : score >= 3.0 ? "REVIEW" : "SKIP",
+        evaluatedFrom: "full-jd",
+        reason: `A-F report${job.reportNumber ? ` #${job.reportNumber}` : ""} · ${score}/5`,
+        reasonDisplay: `Evaluated ${score}/5${job.reportNumber ? ` in report #${job.reportNumber}` : ""}`,
+        reportNumber: job.reportNumber,
+        pipelineScore: score
+      };
     };
 
     res.json({
