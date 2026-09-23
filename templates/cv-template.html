@@ -432,6 +432,32 @@
     font-size: 9.5px;
   }
 
+  /* Recruiter-first CVs keep the existing palette and single-column shell. */
+  .recruiter-cv { --font-size: 12px; }
+  .recruiter-cv .summary-text { line-height: 1.45; }
+  .recruiter-cv .section { margin-bottom: 15px; }
+  .recruiter-cv .job { margin-bottom: 12px; }
+  .recruiter-cv .job-company { font-size: 13px; }
+  .recruiter-cv .job-role { font-size: 12px; }
+  .recruiter-cv .job-period,
+  .recruiter-cv .job-location { font-size: 11px; }
+  .recruiter-cv .job-location { break-after: avoid; }
+  .recruiter-cv .job li { font-size: 12px; line-height: 1.45; margin-bottom: 3px; }
+  .recruiter-cv .projects-list { display: block; }
+  .recruiter-cv .project { margin-bottom: 6px; break-inside: avoid; }
+  .recruiter-cv .project-title { font-size: 12px; }
+  .recruiter-cv .project-tech { font-size: 11px; font-style: normal; break-after: avoid; }
+  .recruiter-cv .project-desc { font-size: 12px; line-height: 1.4; }
+  .recruiter-cv .skill-item,
+  .recruiter-cv .skill-category,
+  .recruiter-cv .edu-title,
+  .recruiter-cv .edu-org,
+  .recruiter-cv .edu-year,
+  .recruiter-cv .cert-title,
+  .recruiter-cv .cert-org,
+  .recruiter-cv .cert-year,
+  .recruiter-cv .interests-line { font-size: 11.5px; }
+
   /* === PRINT === */
   @media print {
     body {
@@ -707,7 +733,7 @@
   <!-- PROJECTS -->
   <div class="section">
     <div class="section-title">{{SECTION_PROJECTS}}</div>
-    {{PROJECTS}}
+    <div class="projects-list">{{PROJECTS}}</div>
   </div>
 
   <!-- EDUCATION -->

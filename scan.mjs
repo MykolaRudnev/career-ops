@@ -34,6 +34,7 @@
  *   node scan.mjs --posted-before 2026-08-01   # absolute upper bound on posting date
  *   node scan.mjs --rediscover-404             # re-verify tracked URLs that 404/410 (rides on --verify)
  *   node scan.mjs --quiet                      # suppress the manifesto footer
+ *   node scan.mjs --refresh                    # bypass provider cache (live fetch)
  *   node scan.mjs --help                       # print this usage block and exit
  */
 
@@ -58,6 +59,8 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import * as yaml from 'js-yaml';
 
+import { readProviderHealth, recordDuplicates } from './discovery/health.mjs';
+import { deduplicateJobs } from './discovery/normalize.mjs';
 import { makeHttpCtx } from './providers/_http.mjs';
 import { buildTrustValidator } from './providers/_trust-validator.mjs';
 import { loadProviders, resolveProvider } from './providers/_registry.mjs';
@@ -178,6 +181,81 @@ export function emitJsonReceipt(receipt, exitCode) {
 // compileContentKeyword shares the `word:`/`stem:` prefix machinery but skips
 // the title filter's short-acronym auto-anchor (#3274).
 export { compileKeyword, compilePositiveKeyword, compileContentKeyword, buildTitleFilter };
+
+// ── Title filter overrides (per-company broadened title net) ───────
+// Optional. `title_filter_overrides` in portals.yml lets specific companies
+// (matched by an explicit slug list — the company/tenant slug the scanner
+// already derives from the job-board-aggregator dataset entry, e.g. the
+// Workday tenant "uwaterloo") opt into a WIDER positive keyword net than the
+// global `title_filter.positive`, without loosening the global filter for
+// every other company in the sweep. Distinct from (and composes cleanly
+// with) `content_filter.by_title_keyword`, which scopes a stricter
+// description-level check to specific title keywords — this scopes a
+// broader title-level net to specific companies.
+//
+// Shape:
+//   title_filter_overrides:
+//     - companies: ["uwaterloo", "ubc", "fanshawec"]
+//       positive_extra:
+//         - "Administrator"
+//         - "Coordinator"
+//
+// v1 keeps matching simple and explicit: a literal (case-insensitive) slug
+// list, no fuzzy company-type inference, no domain heuristics.
+export function buildTitleFilterOverrides(overrides) {
+  const map = new Map();
+  if (!Array.isArray(overrides)) return map;
+  for (const entry of overrides) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const companies = Array.isArray(entry.companies) ? entry.companies : [];
+    const extraRaw = Array.isArray(entry.positive_extra) ? entry.positive_extra : [];
+    // compilePositiveKeyword (not compileKeyword) so positive_extra supports
+    // the same AND-groups / `word:`/`stem:` prefixes as title_filter.positive —
+    // it's an additive positive list, so it should behave like one.
+    const matchers = extraRaw
+      .filter(k => typeof k === 'string')
+      .map(k => k.trim().toLowerCase())
+      .filter(k => k.length > 0)
+      .map(compilePositiveKeyword);
+    if (matchers.length === 0) continue; // nothing to add — skip the entry entirely
+    for (const slug of companies) {
+      if (typeof slug !== 'string' || !slug.trim()) continue;
+      const key = slug.trim().toLowerCase();
+      map.set(key, (map.get(key) || []).concat(matchers));
+    }
+  }
+  return map;
+}
+
+// Wraps buildTitleFilter() with per-company overrides from
+// buildTitleFilterOverrides(). Returns (title, companySlug) => boolean:
+//   - if the global title_filter already matches, pass (companySlug unused)
+//   - else, if companySlug has override entries, pass when any of its
+//     positive_extra keywords match AND no global negative keyword matches
+//   - a company with no override entry behaves EXACTLY like the plain
+//     buildTitleFilter(titleFilter) — the mechanism is a strict no-op for
+//     everyone not explicitly listed.
+export function buildTitleFilterWithOverrides(titleFilter, overridesMap) {
+  const base = buildTitleFilter(titleFilter);
+  const overrides = overridesMap instanceof Map ? overridesMap : new Map();
+  if (overrides.size === 0) return (title) => base(title);
+
+  const normalize = (arr) => (Array.isArray(arr) ? arr : [])
+    .filter(k => typeof k === 'string')
+    .map(k => k.trim().toLowerCase())
+    .filter(k => k.length > 0)
+    .map(compileKeyword);
+  const negative = normalize(titleFilter?.negative);
+
+  return (title, companySlug) => {
+    if (base(title)) return true;
+    const extra = overrides.get(String(companySlug ?? '').trim().toLowerCase());
+    if (!extra || extra.length === 0) return false;
+    const lower = String(title ?? '').toLowerCase();
+    if (negative.some(m => m(lower))) return false;
+    return extra.some(m => m(lower));
+  };
+}
 
 // Compiled-matcher cache for matchedTitleKeywords(), keyed by the
 // `title_filter.positive` array reference. The scan loop calls this once per
@@ -1171,7 +1249,7 @@ export function shouldDedupScanHistoryRow({ firstSeen, status = 'added' }, { rec
     const cooldownUntil = parts[parts.length - 1];
     return today < cooldownUntil;
   }
-  if (status !== 'added') return true;
+  if (status !== 'added' && status !== 'skipped_expired') return true;
   if (recheckAfterDays == null) return true;
   const ageDays = daysBetweenIsoDates(firstSeen, today);
   if (ageDays == null) return true;
@@ -1200,11 +1278,12 @@ const DEDUP_STRIP_PARAMS = new Set([
 /**
  * Normalize a job posting URL into a stable dedup key.
  *
- * Strips cosmetic query params (locale/tracking), drops a trailing slash,
- * and lowercases scheme, host, and path. Only used to compute the
- * *comparison* key — callers keep writing/displaying the original URL so
- * links stay clickable and scan-history/pipeline.md stay faithful to what
- * the provider returned.
+ * Strips cosmetic query params (locale/tracking), promotes recognized
+ * hash-route job IDs before dropping other fragments, drops a trailing slash,
+ * and lowercases scheme, host, and path. Only used to compute the *comparison*
+ * key — callers keep writing/displaying the original URL so links stay
+ * clickable and scan-history/pipeline.md stay faithful to what the provider
+ * returned.
  *
  * The path is lowercased because scan.mjs and scan-ats-full.mjs run as
  * separate processes and can independently produce different casing for the
@@ -1311,7 +1390,7 @@ function pipelineEntry(line, checkboxRe) {
   if (!checkbox) return null;
 
   const rest = line.slice(checkbox[0].length);
-  if (!rest.startsWith('~~')) return { body: rest, expired: false };
+  if (!rest.startsWith('~~')) return { body: rest, expired: /(?:^|\|\s*)status:\s*(?:expired|closed)(?:\s*\||$)/i.test(rest) };
 
   const closed = rest.match(PIPELINE_STRIKETHROUGH_RE);
   return { body: closed ? closed[1] : rest.slice(2), expired: true };
@@ -1335,7 +1414,7 @@ function pipelineEntry(line, checkboxRe) {
  */
 function extractPipelineUrl(line) {
   const entry = pipelineEntry(line, PIPELINE_CHECKBOX_RE);
-  if (!entry) return null;
+  if (!entry || entry.expired) return null;
 
   const match = entry.body.match(PIPELINE_URL_RE);
   return match ? match[0] : null;
@@ -1394,7 +1473,11 @@ function extractPipelineCompanyRole(line) {
 export function collectSeenUrls(sources = {}, policy = {}, { extraTokensFor } = {}) {
   const { scanHistoryText = '', pipelineText = '', applicationsText = '' } = sources;
   const seen = new Set();
-  let recheckEligible = 0;
+  // Rows the age policy has released. Held rather than counted here: the two
+  // sources parsed below carry no age policy of their own, so a row the TTL has
+  // just freed can be re-pinned a few lines later. The count is taken at the end,
+  // against the finished set, so it reports what is actually rescannable.
+  const recheckCandidates = new Set();
 
   // scan-history.tsv
   for (const line of scanHistoryText.split('\n').slice(1)) { // skip header
@@ -1407,21 +1490,67 @@ export function collectSeenUrls(sources = {}, policy = {}, { extraTokensFor } = 
           if (token) seen.add(token);
         }
       }
-    } else recheckEligible++;
+    } else recheckCandidates.add(normalizeUrlForDedup(url));
   }
 
   // pipeline.md — extract URLs from checkbox lines, wherever the URL sits in the
   // line (see extractPipelineUrl: five of the six documented shapes lead with a
   // report number, a report link, or a strikethrough rather than the URL).
+  //
+  // This loop carried no age policy, which is what made
+  // `scan_history.recheck_after_days` a no-op: on an install that has been
+  // scanning for a while every URL the TTL releases above is listed here too, so
+  // it was re-pinned immediately and the window never freed anything.
+  //
+  // What may be released is decided by whether the row is still ACTIONABLE. A
+  // `- [ ]` row is a line the user can still pull from, and re-scanning it would
+  // append a SECOND copy of a job already on the list. A `- [x]` row, or any row
+  // under `## Processed`, is finished work: no queue entry can be duplicated, so
+  // the scan-history TTL is allowed to govern it alone. Release also requires the
+  // URL to be a recheck candidate, so a pipeline-only URL is never un-pinned.
+  // Sections are `##` in PIPELINE_SKELETON — `# Pipeline` is the document title,
+  // `## Pending` and `## Processed` are the sections. Heading depth decides what
+  // a heading does, in both directions:
+  //
+  //   deeper than a section (`###`)  a subdivision INSIDE it; changes nothing,
+  //                                  so `### August` under `## Processed` stays
+  //                                  released and `### Processed leftovers`
+  //                                  under `## Pending` releases nothing
+  //   at section level (`##`)        ends the previous section and opens this
+  //                                  one; released only if it is `Processed`
+  //   shallower (`#`)                outranks a section, so it ends it too — a
+  //                                  `# Backlog` after `## Processed` must not
+  //                                  inherit the released state
+  //
+  // Both failures are the same failure: a row that is still queued gets handed
+  // back to the scanner, which appends a second copy of a job already on the
+  // list. That duplication is what this function exists to prevent.
+  const SECTION_LEVEL = 2;
+  let inProcessed = false;
   for (const line of pipelineText.split('\n')) {
+    const heading = line.match(/^(#+)\s+(.*)$/);
+    if (heading && heading[1].length <= SECTION_LEVEL) {
+      inProcessed = heading[1].length === SECTION_LEVEL
+        && /^processed\b/i.test(heading[2].trim());
+    }
     const url = extractPipelineUrl(line);
-    if (url) seen.add(normalizeUrlForDedup(url));
+    if (!url) continue;
+    const key = normalizeUrlForDedup(url);
+    const done = /^\s*- \[x\]/i.test(line);
+    if ((done || inProcessed) && recheckCandidates.has(key)) continue;
+    seen.add(key);
   }
 
   // applications.md — extract URLs from report links and any inline URLs
   for (const match of applicationsText.matchAll(/https?:\/\/[^\s|)]+/g)) {
     seen.add(normalizeUrlForDedup(match[0]));
   }
+
+  // Counted against the finished set: a released row that applications.md or an
+  // actionable pipeline row pinned again is not eligible, and saying so keeps the
+  // number the scanners print honest.
+  let recheckEligible = 0;
+  for (const key of recheckCandidates) if (!seen.has(key)) recheckEligible++;
 
   return { seen, recheckEligible };
 }
@@ -2490,7 +2619,7 @@ function guardStatusFor(code) {
 const KNOWN_FLAGS = [
   '--dry-run', '--verify', '--headed-fallback', '--throttle', '--rediscover-404',
   '--include-blacklisted', '--company', '--posted-after', '--posted-before',
-  '--since', '--quiet', '--json', '--help', '-h',
+  '--since', '--quiet', '--refresh', '--json', '--help', '-h',
 ];
 
 // Flags whose space-separated value is the NEXT argv token (the `--flag=value`
@@ -2514,6 +2643,7 @@ const USAGE = `Usage:
   node scan.mjs --posted-before 2026-08-01   # absolute upper bound on posting date
   node scan.mjs --json                       # emit one machine-readable receipt on stdout
   node scan.mjs --quiet                      # suppress the manifesto footer
+  node scan.mjs --refresh                    # bypass provider cache (live fetch)
   node scan.mjs --help                       # print this usage block and exit`;
 
 async function main() {
@@ -2522,6 +2652,10 @@ async function main() {
   const dryRun = args.includes('--dry-run');
   const jsonMode = args.includes('--json');
   if (jsonMode) console.log = console.error.bind(console);
+  // Bypass discovery/runtime provider-cache so an explicit scan sees offers
+  // published after the last cached fetch (dashboard "Run Job Search" always
+  // passes this; scheduled/CLI scans keep the TTL unless --refresh is set).
+  const refresh = args.includes('--refresh');
   const verify = args.includes('--verify');
   // Opt-in: on an anti-bot challenge (e.g. pracuj.pl Cloudflare wall), retry the
   // URL in a headed browser. Off by default — headed Chromium needs a display, so
@@ -2746,6 +2880,8 @@ async function main() {
   let annotatedBlacklisted = 0;
   let totalFilteredVisa = 0;
   let totalDupes = 0;
+  const sourceRelevant = new Map();
+  const sourceDuplicates = new Map();
   const newOffers = [];
   const errors = [...resolveErrors];
   const emptyTargets = [];
@@ -2776,6 +2912,7 @@ async function main() {
     });
   }
 
+  const fetchedJobs = [];
   const tasks = targets.map(company => async () => {
     let provider = company._provider;
     // includeUndated is deliberately ALWAYS true, independent of the window.
@@ -2792,7 +2929,14 @@ async function main() {
     // postings on later pages go unfetched. Documented in modes/scan.md; the
     // fix belongs in workday.mjs, where closing it costs the optimisation on
     // every tenant that mixes.
-    const ctx = { ...makeHttpCtx(), sinceMs: earlyStopSinceMs, includeUndated: true };
+    const ctx = {
+      ...makeHttpCtx(),
+      sinceMs: earlyStopSinceMs,
+      includeUndated: true,
+      persist: !dryRun,
+      refresh,
+      locationHints: config.location_filter,
+    };
     let sourceName = provider.id === 'local-parser' ? 'local-parser' : `${provider.id}-api`;
     try {
       let jobs;
@@ -2818,7 +2962,27 @@ async function main() {
         emptyTargets.push(company.name);
       }
 
-      for (const job of jobs) {
+      fetchedJobs.push(...jobs.map(job => ({...job, _scanCompany:company, _scanSource:sourceName})));
+    } catch (err) {
+      errors.push({
+        company: company.name,
+        error: err.message,
+        kind: classifyFetchError(err),
+      });
+    }
+  });
+
+  await parallelFetch(tasks, CONCURRENCY);
+  const dedupedJobs = deduplicateJobs(fetchedJobs);
+  if (!dryRun) {
+    recordDuplicates(dedupedJobs);
+    mkdirSync(path.join(DATA_ROOT,'data'), {recursive:true});
+    writeFileSync(path.join(DATA_ROOT,'data','discovery-latest.json'), JSON.stringify({generatedAt:new Date().toISOString(),jobs:dedupedJobs.map(j=>Object.fromEntries(Object.entries(j).filter(([k])=>!k.startsWith('_scan'))))}));
+  }
+  totalDupes += fetchedJobs.length - dedupedJobs.length;
+  for (const job of dedupedJobs) {
+    const company = job._scanCompany;
+    const sourceName = job._scanSource;
         // Trust enrichment — runs before filters, never drops
         const trustResult = trustValidator(job);
         job.trustScore = trustResult.score;
@@ -2883,14 +3047,18 @@ async function main() {
           totalFilteredVisa++;
           continue;
         }
+        const sourceId = String(sourceName).replace(/-api$/, '');
+        sourceRelevant.set(sourceId, (sourceRelevant.get(sourceId) || 0) + 1);
         const dedupUrl = normalizeUrlForDedup(job.url);
         if (seenUrls.has(dedupUrl)) {
           totalDupes++;
+          sourceDuplicates.set(sourceId, (sourceDuplicates.get(sourceId) || 0) + 1);
           continue;
         }
         const key = companyRoleDedupKey(job.company, job.title, canonicalizeCompany);
         if (seenCompanyRoles.has(key)) {
           totalDupes++;
+          sourceDuplicates.set(sourceId, (sourceDuplicates.get(sourceId) || 0) + 1);
           continue;
         }
         const cooldownResult = cooldownFilter(job);
@@ -2904,28 +3072,18 @@ async function main() {
         }
         // Mark as seen to avoid intra-scan dupes
         seenUrls.add(dedupUrl);
-        seenCompanyRoles.add(key);
+        // Intra-scan role/location duplicates were resolved before filtering.
         // Tag with the company's careers domain so verify can offer a 404/410
         // rediscovery fallback. A null domain (no careers_url) marks the offer
         // as broad-discovery — ineligible for the fallback, per the issue scope.
         const careersUrlDomain = extractCareersUrlDomain(company.careers_url);
         newOffers.push({
-          ...job,
+          ...Object.fromEntries(Object.entries(job).filter(([k]) => !k.startsWith('_scan'))),
           source: sourceName,
           tracked: Boolean(careersUrlDomain),
           careersUrlDomain,
         });
       }
-    } catch (err) {
-      errors.push({
-        company: company.name,
-        error: err.message,
-        kind: classifyFetchError(err),
-      });
-    }
-  });
-
-  await parallelFetch(tasks, CONCURRENCY);
 
   // 5.5. Optional liveness verification — drop expired and guard-rejected postings
   let verifiedOffers = newOffers;
@@ -3236,9 +3394,16 @@ async function main() {
       duplicates: totalDupes,
       added: verifiedOffers.length,
       added_urls: verifiedOffers.map(offer => offer.url),
+      offers: verifiedOffers.map(offer => ({ company: offer.company, title: offer.title, url: offer.url, location: offer.location || null, postedAt: offer.postedAt || offer.publishedAt || null, source: offer.source || offer._scanSource, sourcePriority: offer.sourcePriority, directEmployerSource: offer.directEmployerSource, sourceJobId: offer.sourceJobId })),
+      source_health: [...new Set(targets.map(target => target._provider.id))].map(source => {
+        const rows = readProviderHealth().filter(row => row.source === source);
+        const latest = rows.sort((left, right) => String(right.checkedAt || right.lastSuccessfulScan || '').localeCompare(String(left.checkedAt || left.lastSuccessfulScan || '')))[0] || { source, name: source, status: 'CONFIG_MISSING', errors: ['Not executed yet'] };
+        return { ...latest, name: rows.length === 1 ? latest.name : source, jobsFetched: rows.reduce((sum, row) => sum + (row.jobsFetched || 0), 0), jobsRelevant: sourceRelevant.get(source) || 0, newJobs: verifiedOffers.filter(offer => String(offer.source || offer._scanSource).replace(/-api$/, '') === source).length, duplicates: sourceDuplicates.get(source) || 0, errors: [...new Set(rows.flatMap(row => row.errors || []))] };
+      }),
       errors: errors.map(({ company, error }) => ({ company, error })),
       dry_run: dryRun,
-    }, errors.length > 0 ? 2 : 0);
+      status: errors.length ? 'DEGRADED' : 'READY',
+    }, 0);
   }
 
   // One-time-ever manifesto note: first successful REAL run only. The state

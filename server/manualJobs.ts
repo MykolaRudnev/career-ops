@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { WORKSPACE_ROOT, type PipelineJob } from "./fileAccess.ts";
+import { inferJobCountries } from "./jobCountry.mjs";
 import { acquireTrackerLock, cell, trackerLockDirFor, writeFileAtomic } from "../tracker-utils.mjs";
 import { withPipelineLock } from "../pipeline-lock.mjs";
 import { resolveTrackerPathForWrite } from "../path-resolver.mjs";
@@ -83,6 +84,7 @@ function pipelineLine(job: ManualJobRecord): string {
     `source-name: ${safe(job.sourceName)}`,
     `added: ${job.addedAt}`,
     job.salary ? `salary: ${safe(job.salary)}` : "",
+    job.bid ? `bid: ${safe(job.bid)}` : (job.salary ? `bid: ${safe(job.salary)}` : ""),
     job.notes ? `notes: ${safe(job.notes)}` : ""
   ].filter(Boolean).join(" | ");
   return `- [ ] ${safe(job.url)} | ${safe(job.company)} | ${safe(job.title)} | ${safe(job.location)} | ${details}`;
@@ -106,7 +108,7 @@ async function appendPipeline(job: ManualJobRecord) {
   });
 }
 
-async function appendTracker(job: ManualJobRecord, evaluation?: any) {
+export async function appendTracker(job: PipelineJob, evaluation?: any) {
   const trackerPath = resolveTrackerPathForWrite(WORKSPACE_ROOT);
   if (!fs.existsSync(trackerPath)) {
     fs.mkdirSync(path.dirname(trackerPath), { recursive: true });
@@ -120,7 +122,7 @@ async function appendTracker(job: ManualJobRecord, evaluation?: any) {
     const next = (numbers.length ? Math.max(...numbers) : 0) + 1;
     const score = Number.isFinite(evaluation?.fitScore) ? `${Number(evaluation.fitScore).toFixed(1)}/5` : "—";
     const notes = cell([
-      "Source: Manual",
+      job.manualEntry ? "Source: Manual" : "Source: Application automation",
       `manual-id: ${job.id}`,
       job.url.startsWith("http") ? `URL: ${job.url}` : "",
       job.location ? `Location: ${job.location}` : "",
@@ -158,12 +160,13 @@ export async function createManualJob(input: ManualJobInput, options: { addAnywa
     title,
     description,
     location,
-    countries: [],
+    countries: inferJobCountries(location),
     workModel,
     date: now.toISOString().slice(0, 10),
     status: "pending",
     extra: String(input.notes || "").trim(),
     salary: String(input.salary || "").trim(),
+    bid: String(input.salary || "").trim(),
     source: "manual",
     sourceType: "MANUAL",
     manualEntry: true,
@@ -180,7 +183,7 @@ export async function createManualJob(input: ManualJobInput, options: { addAnywa
   const initialEvaluation = options.evaluation || analyzeJobMatch(job, description);
   await appendTracker(job, initialEvaluation);
 
-  const artifactDir = jobArtifactDir(job);
+  const artifactDir = jobArtifactDir(job, { create: true });
   fs.mkdirSync(artifactDir, { recursive: true });
   fs.writeFileSync(path.join(artifactDir, "job-description.md"), description, "utf8");
   return { created: true, duplicate: false, job, initialEvaluation };

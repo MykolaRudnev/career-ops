@@ -42,7 +42,7 @@ test("manual job persists to rich storage, standard pipeline, tracker, and outpu
   assert.equal(result.pipeline.pending[0].description, result.created.job.description);
   assert.ok(fs.existsSync(path.join(workspace, "data/manual-jobs.json")));
   assert.match(fs.readFileSync(path.join(workspace, "data/applications.md"), "utf8"), /Source: Manual/);
-  assert.ok(fs.existsSync(path.join(workspace, "outputs/manual-co-shopify-developer/job-description.md")));
+  assert.ok(fs.existsSync(path.join(workspace, "outputs/manual-co/shopify-developer/job-description.md")));
   fs.rmSync(workspace, { recursive: true, force: true });
 });
 

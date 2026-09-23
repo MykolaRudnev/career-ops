@@ -35,6 +35,7 @@ export default {
         && typeof j.url === 'string' && /^https?:\/\//i.test(j.url.trim()))
       .map(j => ({
         title: j.position.trim(),
+        sourceJobId:String(j.id || ''), applyUrl:j.apply_url, description:j.description, technologies:j.tags || [], workModel:'REMOTE', postedAt:Date.parse(j.date) || undefined, salaryMin:j.salary_min, salaryMax:j.salary_max, salaryCurrency:j.salary_currency, salaryPeriod:'year',
         url: j.url.trim(),
         company: typeof j.company === 'string' && j.company.trim() ? j.company.trim() : (entry.name || 'RemoteOK'),
         location: typeof j.location === 'string' ? j.location.trim() : '',

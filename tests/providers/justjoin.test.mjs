@@ -86,6 +86,13 @@ try {
   if (capturedOpts && capturedOpts.redirect === 'error') pass('justjoin.fetch() passes redirect:"error"');
   else fail(`justjoin.fetch() should pass redirect:"error", got ${JSON.stringify(capturedOpts)}`);
 
+  const apiUrl = new URL(capturedUrl);
+  if (apiUrl.searchParams.get('sortBy') === 'publishedAt' && apiUrl.searchParams.get('orderBy') === 'descending') {
+    pass('justjoin.fetch() sorts newest-first by publishedAt');
+  } else {
+    fail(`justjoin.fetch() sort params wrong: ${capturedUrl}`);
+  }
+
   let ssrfRejected = false;
   try {
     await jj.fetch(

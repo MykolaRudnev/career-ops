@@ -44,6 +44,7 @@ Run `npm run jd:similarity -- {bundle-root}/jd/current.md {bundle-root}/jd/previ
 19. Run the fact gate against the generated HTML: `node verify-cv-facts.mjs {html-path}`
     - This is a hard gate before PDF rendering.
     - If it fails, stop and fix the generated HTML by removing invented metrics or adding verified evidence to `cv.md`, `article-digest.md`, or `config/cv-facts.json`.
+    - `generate-pdf.mjs` then runs the deterministic Resume Quality Check automatically before rendering, using the adjacent `job-description.md`, `metadata.json`, and `tailoring-diff.json` when present. It warns on keyword, wording, routing, link, certificate, and first-impression issues; it blocks only invalid artifacts, missing identity, factual/date inconsistencies, unsupported metrics, or unreadable PDF extraction. The final result is logged and written beside the PDF as `*.quality.json`.
 20. **Hiring-manager audit — off by default, opt-in only.** Run `modes/pdf/hm-audit.md` if and only if one of these is true; otherwise skip straight to Step 21 without prompting.
     - The invocation carried `--hm-audit` (`/career-ops pdf --hm-audit`, or the same flag on a natural-language request).
     - `modes/_custom.md` turns it on as a house rule.
@@ -55,7 +56,7 @@ Run `npm run jd:similarity -- {bundle-root}/jd/current.md {bundle-root}/jd/previ
     - The rendered PDF has a two-page warning threshold by default. `--max-pages=N` accepts a positive integer; pass `--max-pages=1` when the user or market prefers a one-page CV.
     - If the rendered PDF exceeds its threshold, generation warns loudly with the actual and allowed page counts plus trimming guidance, then reports and indexes the unchanged PDF so existing longer-CV flows keep working.
     - Pass `--strict-pages` only when the user or market requires a hard limit. Strict overflow leaves the draft available for inspection but does not report or index it as successful; trim lower-priority content and rerun.
-22. Report: PDF path, number of pages, keyword coverage %, and any skill gaps from Step 4 still unaddressed
+22. Report: PDF path, number of pages, Resume Quality Check score/warnings, keyword coverage %, and any skill gaps from Step 4 still unaddressed
 
 ## ATS Rules (clean parsing)
 
@@ -69,7 +70,7 @@ Run `npm run jd:similarity -- {bundle-root}/jd/current.md {bundle-root}/jd/previ
 - Distributed JD keywords: Summary (top 5), first bullet of each role, Skills section
 - No hidden text, keyword stuffing, or white-font tricks. Optimize for parseability plus human review.
 
-**Optional parseability check:** after generating the HTML you can score it for ATS-friendliness with `node verify-ats.mjs output/cv-{candidate}-{company}.html` (see `modes/ats.md`). This is deterministic, read-only, and advisory — it reports a 0-100 score plus concrete issues but never blocks generation (unlike the `verify-cv-facts.mjs` fact gate in Step 18).
+**Optional deeper ATS score:** after generating the HTML you can still run `node verify-ats.mjs output/cv-{candidate}-{company}.html` (see `modes/ats.md`). The default Resume Quality Check already validates practical content quality and PDF extraction; `verify-ats.mjs` remains the separate, advisory 0-100 structural score.
 
 ## Recruiter Review Gates
 

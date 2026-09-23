@@ -8,7 +8,7 @@ export type OperationStatus = "PENDING" | "RUNNING" | "CANCELLING" | "CANCELLED"
 export interface OperationRecord {
   operationId: string;
   jobId: string;
-  type: "TAILORED_CV" | "COVER_LETTER";
+  type: "TAILORED_CV" | "COVER_LETTER" | "APPLICATION";
   status: OperationStatus;
   startedAt: string;
   updatedAt: string;
@@ -94,9 +94,10 @@ export class OperationManager {
       signal: active.controller.signal,
       updateStage: (stage) => this.updateStage(operationId, stage)
     }).then((result) => {
+      active.record.result = result;
       if (active.controller.signal.aborted) {
         active.record.status = "CANCELLED";
-        active.record.currentStage = "Generation cancelled";
+        active.record.currentStage = "Operation cancelled";
         active.record.error = "Cancelled by user";
         return;
       }
@@ -106,7 +107,7 @@ export class OperationManager {
     }).catch((error: any) => {
       if (error instanceof OperationCancelledError || active.controller.signal.aborted) {
         active.record.status = "CANCELLED";
-        active.record.currentStage = "Generation cancelled";
+        active.record.currentStage = "Operation cancelled";
         active.record.error = "Cancelled by user";
       } else {
         active.record.status = "FAILED";

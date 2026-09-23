@@ -2,11 +2,11 @@
 /** @typedef {import('./_types.js').Provider} Provider */
 
 // Jobicy provider — board-wide remote-jobs aggregator feed
-// (https://jobicy.com/api/v2/remote-jobs?count=50). Returns { jobs: [...] }.
+// (https://jobicy.com/api/v2/remote-jobs?count=200). Returns { jobs: [...] }.
 //
 // Wire in via a `job_boards:` entry with `provider: jobicy`.
 
-const FEED_URL = 'https://jobicy.com/api/v2/remote-jobs?count=50';
+const FEED_URL = 'https://jobicy.com/api/v2/remote-jobs?count=200';
 
 /** @type {Provider} */
 export default {
@@ -77,7 +77,9 @@ export function parseJobicyResponse(json, defaultCompany = 'Jobicy') {
         url,
         company,
         location,
-        postedAt,
+        postedAt, sourceJobId:String(j.id || ''), description:j.jobDescription, workModel:'REMOTE',
+        salaryMin:j.annualSalaryMin, salaryMax:j.annualSalaryMax, salaryCurrency:j.salaryCurrency, salaryPeriod:'year',
+        employmentType:j.jobType, seniority:j.jobLevel, technologies:j.jobIndustry || [],
       };
     })
     .filter(j => j !== null);

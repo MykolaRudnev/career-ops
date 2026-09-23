@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+import { useApplicationAutomation } from "./ApplicationAutomation";
+import { DiscoveryHealth } from "./DiscoveryHealth";
 import {
   fetchStatus,
   fetchPipeline,
+  appliedJobsJson,
   fetchTailoredCvs,
   fetchActivity,
   runJobSearch,
@@ -13,8 +16,11 @@ import {
   generateTailoredCv,
   generateCoverLetter,
   fetchCoverLetter,
+  fetchJobArtifacts,
+  type JobArtifacts,
   generateMasterCv,
   updateJobStatus,
+  updateJobBid,
   openTarget,
   fetchTailoringDiff,
   fetchAiProviders,
@@ -32,6 +38,7 @@ import {
   type CoverLetterArtifact
 } from "./api";
 import { ManualJobBoard } from "./ManualJobBoard";
+import { isPolandJob, loadMarketLane, matchesMarketLane, saveMarketLane, type MarketLane } from "./marketLane";
 import { CoverLetterModal } from "./CoverLetterModal";
 import {
   Search,
@@ -46,10 +53,15 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
+  ArrowUpDown,
+  Edit2,
+  Check,
   Star,
   Zap,
   Filter
 } from "lucide-react";
+
+type AppliedSortColumn = "company" | "title" | "location" | "date" | "status" | "bid" | "source";
 
 export function App() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -64,10 +76,22 @@ export function App() {
   const [isTestingProvider, setIsTestingProvider] = useState(false);
   const [providerTest, setProviderTest] = useState<AiProviderTestResult | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"pending" | "processed" | "manual">("pending");
+  const [activeTab, setActiveTab] = useState<"pipeline" | "applied" | "cvs" | "settings">("pipeline");
+  const [pipelineView, setPipelineView] = useState<"pending" | "evaluated" | "manual">("pending");
+  const [appliedStatus, setAppliedStatus] = useState<"ALL" | "No Response" | "Rejected" | "Interview" | "Offer">("ALL");
+  const [appliedSortColumn, setAppliedSortColumn] = useState<AppliedSortColumn>("date");
+  const [appliedSortDirection, setAppliedSortDirection] = useState<"asc" | "desc">("desc");
+  const [appliedSearch, setAppliedSearch] = useState<string>("");
+  const [editingBidId, setEditingBidId] = useState<string | null>(null);
+  const [editingBidValue, setEditingBidValue] = useState<string>("");
+  const [isSavingBid, setIsSavingBid] = useState<boolean>(false);
+  const [editingModalBid, setEditingModalBid] = useState<boolean>(false);
+  const [modalBidValue, setModalBidValue] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [modelFilter, setModelFilter] = useState<"ALL" | "Remote" | "Hybrid" | "Office">("ALL");
+  const [minimumScore, setMinimumScore] = useState(0);
   const [countryFilter, setCountryFilter] = useState("ALL");
+  const [marketLane, setMarketLane] = useState<MarketLane>(() => loadMarketLane());
   const [matchCategory, setMatchCategory] = useState<
     "ALL" | "BEST_MATCH" | "REACT_NEXT" | "SHOPIFY" | "MAGENTO" | "NODE" | "SENIOR_LEAD"
   >("ALL");
@@ -85,6 +109,8 @@ export function App() {
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [operations, setOperations] = useState<OperationRecord[]>([]);
   const [cancellingOperationId, setCancellingOperationId] = useState<string | null>(null);
+  const [jobArtifacts, setJobArtifacts] = useState<(JobArtifacts & { jobUrl: string }) | null>(null);
+  const [artifactError, setArtifactError] = useState("");
   const [coverJob, setCoverJob] = useState<PipelineJob | null>(null);
   const [coverArtifact, setCoverArtifact] = useState<CoverLetterArtifact | null>(null);
 
@@ -127,7 +153,7 @@ export function App() {
           const isActive = nextOperations.some((item) => ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
           if (wasActive && !isActive) {
             const latest = nextOperations[0];
-            const label = latest?.type === "COVER_LETTER" ? "Cover Letter" : "Tailored CV";
+            const label = latest?.type === "APPLICATION" ? "Application queue" : latest?.type === "COVER_LETTER" ? "Cover Letter" : "Tailored CV";
             const message = latest?.status === "COMPLETED"
               ? `${label} is READY.`
               : latest?.status === "CANCELLED"
@@ -216,7 +242,7 @@ export function App() {
     showNotification("Starting real Career-Ops scan...");
     try {
       const data = await runJobSearch();
-      showNotification(`Scan completed! Added ${data.added || 0} new offers.`);
+      showNotification(`Scan complete: ${data.added || 0} new · ${data.expiredRemoved || 0} expired removed · ${data.uncertain || 0} uncertain`);
       await loadData();
     } catch (e: any) {
       showNotification(`Scan failed: ${e.message}`);
@@ -230,7 +256,7 @@ export function App() {
     showNotification("🚀 Running comprehensive bulk sweep across portals for new offers...");
     try {
       const data = await runBulkJobSearch();
-      showNotification(`🎉 Bulk discovery completed! Scanned ${data.found || 0} offers, added ${data.added || 0} new eligible jobs.`);
+      showNotification(`Bulk complete: ${data.added || 0} new · ${data.expiredRemoved || 0} expired removed · ${data.uncertain || 0} uncertain`);
       await loadData();
     } catch (e: any) {
       showNotification(`Bulk discovery error: ${e.message}`);
@@ -288,6 +314,7 @@ export function App() {
   };
 
   const handleCoverLetter = async (job: PipelineJob, regenerate = false) => {
+    setCoverArtifact(null);
     setCoverJob(job);
     try {
       if (!regenerate) {
@@ -309,8 +336,20 @@ export function App() {
   const handleSelectJob = (job: PipelineJob) => {
     setSelectedJob(job);
     setCoverArtifact(null);
-    void fetchCoverLetter(job).then(setCoverArtifact).catch(() => {});
+    setCoverJob(null);
   };
+
+  const artifactRefresh = operations.filter(op => ["TAILORED_CV", "COVER_LETTER", "APPLICATION"].includes(op.type) && op.status === "COMPLETED").map(op => op.operationId).join(",");
+  useEffect(() => {
+    if (!selectedJob) return;
+    let cancelled = false;
+    setArtifactError("");
+    void fetchJobArtifacts(selectedJob).then(artifacts => {
+      if (!cancelled) setJobArtifacts({ ...artifacts, jobUrl: selectedJob.url });
+    }).catch(error => { if (!cancelled) setArtifactError(error.message); });
+    return () => { cancelled = true; };
+  }, [selectedJob?.url, artifactRefresh, coverArtifact?.metadata.editedAt]);
+  const selectedArtifacts = jobArtifacts?.jobUrl === selectedJob?.url ? jobArtifacts : null;
 
   const handleCancelOperation = async (operationId: string) => {
     setCancellingOperationId(operationId);
@@ -377,7 +416,8 @@ export function App() {
     }
   };
 
-  const currentList = activeTab === "processed" ? processedJobs : pendingJobs;
+  const evaluatedJobs = processedJobs.filter((job) => job.pipelineScore != null && job.status !== "skipped" && job.status !== "expired");
+  const currentList = pipelineView === "evaluated" ? evaluatedJobs : pendingJobs;
   const activeOperation = operations.find((item) => ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
   const activeCvOperation = operations.find((item) => item.type === "TAILORED_CV" && ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
   const activeCoverOperation = operations.find((item) => item.type === "COVER_LETTER" && ["PENDING", "RUNNING", "CANCELLING"].includes(item.status));
@@ -412,6 +452,8 @@ export function App() {
     return counts;
   }, new Map<string, number>());
   const countryOptions = [...countryCounts.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const polandCount = currentList.filter(isPolandJob).length;
+  const bulkLaneCount = currentList.length - polandCount;
 
   const filteredJobs = currentList.filter((job) => {
     const q = searchQuery.toLowerCase();
@@ -421,6 +463,7 @@ export function App() {
       job.location.toLowerCase().includes(q);
     const matchModel = modelFilter === "ALL" || job.workModel === modelFilter;
     const matchCountry = countryFilter === "ALL" || (job.countries || ["Unknown"]).includes(countryFilter);
+    const matchLane = matchesMarketLane(job, marketLane);
 
     let matchCat = true;
     if (matchCategory === "BEST_MATCH") {
@@ -442,11 +485,131 @@ export function App() {
       matchCat = t.includes("senior") || t.includes("lead") || t.includes("principal") || t.includes("staff");
     }
 
-    return matchSearch && matchModel && matchCountry && matchCat;
+    return matchSearch && matchModel && matchCountry && matchLane && matchCat && (job.fitScore || 0) >= minimumScore;
   }).sort((a, b) => (b.compatibilityPercent || 0) - (a.compatibilityPercent || 0));
 
+  const visibleJobs = filteredJobs.slice(0, 100);
+  const automation = useApplicationAutomation({
+    busy: Boolean(activeOperation), providerId: selectedProviderId, model: selectedModel,
+    onOperation: (operation) => setOperations(current => [operation, ...current]),
+    cancel: (id) => { void handleCancelOperation(id); }, notify: showNotification
+  });
+
+  const handleAppliedSort = (col: AppliedSortColumn) => {
+    if (appliedSortColumn === col) {
+      setAppliedSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setAppliedSortColumn(col);
+      setAppliedSortDirection(col === "date" ? "desc" : "asc");
+    }
+  };
+
+  const renderSortIcon = (col: AppliedSortColumn) => {
+    if (appliedSortColumn === col) {
+      return appliedSortDirection === "asc" ? (
+        <ChevronUp size={14} className="sort-icon active" />
+      ) : (
+        <ChevronDown size={14} className="sort-icon active" />
+      );
+    }
+    return <ArrowUpDown size={12} className="sort-icon inactive" />;
+  };
+
+  const handleSaveBid = async (job: PipelineJob, customValue?: string) => {
+    const val = (customValue !== undefined ? customValue : editingBidValue).trim();
+    setIsSavingBid(true);
+    try {
+      await updateJobBid(job.url, val, job.id);
+      showNotification(`Rate / Bid saved${val ? `: ${val}` : ""}`);
+      setProcessedJobs((prev) =>
+        prev.map((item) =>
+          item.id === job.id || (job.url && item.url === job.url) ? { ...item, bid: val } : item
+        )
+      );
+      setPendingJobs((prev) =>
+        prev.map((item) =>
+          item.id === job.id || (job.url && item.url === job.url) ? { ...item, bid: val } : item
+        )
+      );
+      if (selectedJob && (selectedJob.id === job.id || (job.url && selectedJob.url === job.url))) {
+        setSelectedJob({ ...selectedJob, bid: val });
+      }
+      setEditingBidId(null);
+    } catch (err: any) {
+      showNotification(`Failed to save Rate / Bid: ${err.message}`);
+    } finally {
+      setIsSavingBid(false);
+    }
+  };
+
+  const getAppliedStatusText = (job: PipelineJob) => {
+    return (job.extra || "").match(/\b(Rejected|Interview|Offer)\b/i)?.[1] || "No Response";
+  };
+
+  const copyAppliedJson = async () => {
+    try {
+      await navigator.clipboard.writeText(appliedJobsJson(processedJobs));
+      showNotification("All applied applications copied as JSON.");
+    } catch {
+      showNotification("Could not copy JSON. Allow clipboard access and try again.");
+    }
+  };
+
+  const appliedJobs = processedJobs
+    .filter((job) => {
+      const statusText = getAppliedStatusText(job);
+      const matchStatus =
+        appliedStatus === "ALL" ||
+        (appliedStatus === "No Response"
+          ? job.status === "applied" && statusText === "No Response"
+          : statusText.toLowerCase() === appliedStatus.toLowerCase());
+      const q = (appliedSearch || searchQuery).trim().toLowerCase();
+      const matchSearch =
+        !q ||
+        job.company.toLowerCase().includes(q) ||
+        job.title.toLowerCase().includes(q) ||
+        (job.location || "").toLowerCase().includes(q) ||
+        (job.bid || "").toLowerCase().includes(q) ||
+        (job.sourceName || "").toLowerCase().includes(q) ||
+        statusText.toLowerCase().includes(q);
+      return matchStatus && matchSearch;
+    })
+    .sort((a, b) => {
+      let cmp = 0;
+      switch (appliedSortColumn) {
+        case "company":
+          cmp = a.company.localeCompare(b.company, undefined, { sensitivity: "base" });
+          break;
+        case "title":
+          cmp = a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+          break;
+        case "location":
+          cmp = (a.location || "").localeCompare(b.location || "", undefined, { sensitivity: "base" });
+          break;
+        case "date": {
+          const dateA = a.date || (a.addedAt ? a.addedAt.slice(0, 10) : "");
+          const dateB = b.date || (b.addedAt ? b.addedAt.slice(0, 10) : "");
+          cmp = dateA.localeCompare(dateB);
+          break;
+        }
+        case "status":
+          cmp = getAppliedStatusText(a).localeCompare(getAppliedStatusText(b), undefined, { sensitivity: "base" });
+          break;
+        case "bid":
+          cmp = (a.bid || "").localeCompare(b.bid || "", undefined, { numeric: true, sensitivity: "base" });
+          break;
+        case "source": {
+          const srcA = a.sourceName || (a.url.includes("justjoin") ? "JustJoin.it" : "Direct");
+          const srcB = b.sourceName || (b.url.includes("justjoin") ? "JustJoin.it" : "Direct");
+          cmp = srcA.localeCompare(srcB, undefined, { sensitivity: "base" });
+          break;
+        }
+      }
+      return appliedSortDirection === "asc" ? cmp : -cmp;
+    });
+
   return (
-    <div className="dashboard">
+    <div className={`dashboard ${selectedJob ? "has-job-details" : ""}`}>
       {/* Header */}
       <header className="header">
         <div className="header-title-group">
@@ -470,7 +633,14 @@ export function App() {
         </div>
       </header>
 
-      <section className="ai-provider-panel" aria-label="AI provider settings">
+      <nav className="top-nav" aria-label="Dashboard sections">
+        {([['pipeline', 'Pipeline'], ['applied', 'Applied'], ['cvs', 'CVs'], ['settings', 'Settings']] as const).map(([key, label]) => (
+          <button key={key} className={`top-nav-btn ${activeTab === key ? "active" : ""}`} onClick={() => setActiveTab(key)}>{label}{key === "applied" ? ` (${processedJobs.length})` : ""}</button>
+        ))}
+      </nav>
+
+      {activeTab === "settings" && <DiscoveryHealth />}
+      {activeTab === "settings" && <section className="ai-provider-panel" aria-label="AI provider settings">
         <div className="ai-provider-heading">
           <div>
             <strong>AI Provider</strong>
@@ -524,58 +694,34 @@ export function App() {
             <span>{providerTest.success ? providerTest.response || "OK" : providerTest.error || providerTest.status}</span>
           </div>
         )}
-      </section>
+      </section>}
 
       {/* Live AI Tailoring Progress Banner */}
       {isTailoring && (
-        <div
-          style={{
-            background: "linear-gradient(90deg, rgba(168, 85, 247, 0.15), rgba(56, 189, 248, 0.15))",
-            border: "1px solid rgba(168, 85, 247, 0.4)",
-            borderRadius: "8px",
-            padding: "14px 18px",
-            marginBottom: "16px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "12px"
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div className="tailoring-banner">
+          <div className="tailoring-banner-main">
             <span className="spinner" style={{ width: "16px", height: "16px" }} />
             <div>
-              <strong style={{ color: "#c084fc", fontSize: "0.95rem" }}>
-                AI Tailoring in Progress:
-              </strong>{" "}
-              <span style={{ color: "#e2e8f0", fontSize: "0.9rem" }}>
+              <strong>AI Tailoring in Progress:</strong>{" "}
+              <span>
                 {activity?.currentOp?.summary || `Tailoring with ${selectedProvider?.name || selectedProviderId} (${selectedModel})...`}
               </span>
             </div>
           </div>
-          <div style={{ fontSize: "0.8rem", color: "#94a3b8", display: "flex", gap: "8px" }}>
-            <span
-              className="badge"
-              style={{ background: "rgba(168, 85, 247, 0.2)", color: "#c084fc", border: "1px solid rgba(168, 85, 247, 0.3)" }}
-            >
-              {selectedProvider?.name || selectedProviderId} · {selectedModel}
-            </span>
-            <span
-              className="badge"
-              style={{ background: "rgba(52, 211, 153, 0.2)", color: "#34d399", border: "1px solid rgba(52, 211, 153, 0.3)" }}
-            >
-              Fact Gate Active
-            </span>
+          <div className="tailoring-banner-meta">
+            <span className="badge">{selectedProvider?.name || selectedProviderId} · {selectedModel}</span>
+            <span className="badge">Fact Gate Active</span>
           </div>
         </div>
       )}
 
-      {/* SECTION 2 & 3: Master CV & Tailored CVs */}
-      <div className="cv-grid">
+      {/* CV workspace */}
+      {activeTab === "cvs" && <div className="cv-grid">
         {/* SECTION 2: Master CV */}
         <div className="card">
           <div className="card-header">
             <div className="card-title">
-              <FileText size={18} color="#06b6d4" /> Section 2 — Master CV
+              <FileText size={18} /> Section 2 — Master CV
             </div>
             {status?.masterCv.mdExists ? (
               <span className="badge" style={{ background: "rgba(16, 185, 129, 0.2)", color: "#10b981", border: "1px solid #10b981" }}>
@@ -613,22 +759,22 @@ export function App() {
         <div className="card">
           <div className="card-header">
             <div className="card-title">
-              <Sparkles size={18} color="#a855f7" /> Section 3 — Tailored CVs ({tailoredCvs.length})
+              <Sparkles size={18} /> Section 3 — Tailored CVs ({tailoredCvs.length})
             </div>
             <button className="btn btn-outline btn-sm" onClick={() => handleOpen("cv-folder")}>
               <Folder size={14} /> Open CV Folder
             </button>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "130px", overflowY: "auto" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "320px", overflowY: "auto" }}>
             {tailoredCvs.length === 0 ? (
               <div style={{ fontSize: "13px", color: "var(--text-muted)", fontStyle: "italic" }}>
                 No tailored CVs generated yet. Use "Generate Tailored CV" on any vacancy below.
               </div>
             ) : (
-              tailoredCvs.slice(0, 4).map((f) => (
+              tailoredCvs.map((f) => (
                 <div
-                  key={f.filename}
+                  key={f.filePath}
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
@@ -636,34 +782,51 @@ export function App() {
                     background: "rgba(15, 23, 42, 0.6)",
                     padding: "8px 12px",
                     borderRadius: "6px",
-                    border: "1px solid var(--border)"
+                    border: "1px solid var(--border)",
+                    gap: "12px"
                   }}
                 >
-                  <div style={{ display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" }}>
-                    <span style={{ fontSize: "13px", fontWeight: 600, color: "#fff", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
-                      {f.filename}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden", minWidth: 0, flex: 1 }}>
+                    <span
+                      style={{ fontSize: "13px", fontWeight: 600, color: "#fff", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}
+                      title={f.displayName || f.filename}
+                    >
+                      {f.displayName || f.filename}
                     </span>
-                    <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                    <span style={{ fontSize: "11px", color: "var(--text-muted)", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
                       {(f.sizeBytes / 1024).toFixed(1)} KB · {new Date(f.modified).toLocaleString()}
                     </span>
                   </div>
-                  <button className="btn btn-primary btn-sm" onClick={() => handleOpen("tailored-cv", f.filePath)}>
-                    Open PDF
-                  </button>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center", flexShrink: 0 }}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleOpen("cv-folder", f.folderPath || f.filePath)}
+                      title="Open file system folder containing this CV"
+                    >
+                      <Folder size={14} /> Open Folder
+                    </button>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => handleOpen("tailored-cv", f.filePath)}
+                      title="Open PDF"
+                    >
+                      <FileText size={14} /> Open PDF
+                    </button>
+                  </div>
                 </div>
               ))
             )}
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* SECTION 1: SEARCH & PIPELINE */}
-      <div className="card">
+      {activeTab === "pipeline" && <div className={`card pipeline-card ${pipelineView === "pending" ? "pipeline-grid" : ""}`}>
         <div className="card-header">
           <div className="card-title">
-            <Search size={18} color="#06b6d4" /> Section 1 — Search & Pipeline
+            <Search size={18} /> Section 1 — Search & Pipeline
           </div>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <div className="pipeline-actions">
             <button
               className="btn btn-primary"
               disabled={isScanning || isBulkScanning}
@@ -681,6 +844,15 @@ export function App() {
             >
               {isBulkScanning ? <span className="spinner" /> : <Zap size={14} />}
               Bulk Find New Offers
+            </button>
+            <button
+              className="btn btn-outline"
+              disabled={isReranking}
+              onClick={handleRerank}
+              title="Re-score all active jobs and load full JDs for the leading contenders"
+            >
+              {isReranking ? <span className="spinner" /> : <RefreshCw size={14} />}
+              Re-rank
             </button>
             <button className="btn btn-secondary" onClick={loadData}>
               <RefreshCw size={14} /> Refresh Pipeline
@@ -710,31 +882,39 @@ export function App() {
           </div>
           <div className="stat-box">
             <span className="stat-label">New Eligible Added</span>
-            <span className="stat-value" style={{ color: "#34d399" }}>
+            <span className="stat-value stat-value-positive">
               {status?.lastScan?.totalAdded ?? 0}
             </span>
           </div>
         </div>
+
+        <DiscoveryHealth compact refreshKey={status?.lastScan?.lastRun || ''} />
 
         {/* Filters and Tabs */}
         <div className="filter-bar" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap", width: "100%" }}>
             <div className="tab-group">
               <button
-                className={`tab-btn ${activeTab === "pending" ? "active" : ""}`}
-                onClick={() => setActiveTab("pending")}
+                className={`tab-btn ${pipelineView === "pending" ? "active" : ""}`}
+                onClick={() => setPipelineView("pending")}
               >
                 Pending Offers ({pendingJobs.length})
               </button>
               <button
-                className={`tab-btn ${activeTab === "processed" ? "active" : ""}`}
-                onClick={() => setActiveTab("processed")}
+                className={`tab-btn ${pipelineView === "evaluated" ? "active" : ""}`}
+                onClick={() => { setActiveTab("pipeline"); setPipelineView("evaluated"); }}
               >
-                Processed / History ({processedJobs.length})
+                Evaluated ({evaluatedJobs.length})
               </button>
               <button
-                className={`tab-btn ${activeTab === "manual" ? "active" : ""}`}
-                onClick={() => setActiveTab("manual")}
+                className="tab-btn"
+                onClick={() => setActiveTab("applied")}
+              >
+                Applied ({processedJobs.filter((job) => job.status === "applied").length})
+              </button>
+              <button
+                className={`tab-btn ${pipelineView === "manual" ? "active" : ""}`}
+                onClick={() => setPipelineView("manual")}
               >
                 Manual Job
               </button>
@@ -746,12 +926,12 @@ export function App() {
               placeholder="Filter by title, company, or city..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ minWidth: "240px", flex: 1, display: activeTab === "manual" ? "none" : "block" }}
+              style={{ minWidth: "240px", flex: 1, display: pipelineView === "manual" ? "none" : "block" }}
             />
           </div>
 
           {/* Offer Focus Categories & Work Model */}
-          <div style={{ display: activeTab === "manual" ? "none" : "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
+          <div style={{ display: pipelineView === "manual" ? "none" : "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
             <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontSize: "12px", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "4px" }}>
                 <Filter size={13} /> Filter:
@@ -767,7 +947,7 @@ export function App() {
                 onClick={() => setMatchCategory(matchCategory === "BEST_MATCH" ? "ALL" : "BEST_MATCH")}
                 title="Filter offers matching your core Senior Frontend / React / TypeScript / E-Commerce profile"
               >
-                <Star size={13} fill={matchCategory === "BEST_MATCH" ? "#facc15" : "none"} />
+                <Star size={13} fill={matchCategory === "BEST_MATCH" ? "currentColor" : "none"} />
                 Best Matches ({bestMatchCount})
               </button>
               <button
@@ -805,6 +985,21 @@ export function App() {
             </div>
 
             <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Market:</span>
+              {([
+                ["BULK", `US / Intl (${bulkLaneCount})`],
+                ["POLAND", `Poland · manual (${polandCount})`],
+                ["ALL", `All (${currentList.length})`],
+              ] as const).map(([lane, label]) => (
+                <button
+                  key={lane}
+                  className={`btn btn-sm ${marketLane === lane ? "btn-secondary" : "btn-outline"}`}
+                  title={lane === "POLAND" ? "Poland roles: pick Apply on each row" : lane === "BULK" ? "Non-Poland roles — safe for bulk queue" : "Show every market"}
+                  onClick={() => { setMarketLane(lane); saveMarketLane(lane); }}
+                >
+                  {label}
+                </button>
+              ))}
               <label className="country-filter-label">
                 Country:
                 <select className="country-filter" value={countryFilter} onChange={(event) => setCountryFilter(event.target.value)}>
@@ -814,9 +1009,6 @@ export function App() {
                   ))}
                 </select>
               </label>
-              <button className="btn btn-outline btn-sm" disabled={isReranking} onClick={handleRerank} title="Re-score all active jobs and load full JDs for the leading contenders">
-                {isReranking ? <span className="spinner" /> : <RefreshCw size={13} />} Re-rank
-              </button>
               <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Model:</span>
               {(["ALL", "Remote", "Hybrid", "Office"] as const).map((m) => (
                 <button
@@ -831,7 +1023,7 @@ export function App() {
           </div>
         </div>
 
-        {activeTab === "manual" && (
+        {pipelineView === "manual" && (
           <ManualJobBoard
             providerId={selectedProviderId}
             model={selectedModel}
@@ -844,14 +1036,19 @@ export function App() {
             }}
             onSaved={() => { void loadData(); }}
             onOpenExisting={(job) => {
-              setActiveTab(job.status === "pending" ? "pending" : "processed");
+              setActiveTab(job.status === "pending" ? "pipeline" : "applied");
               handleSelectJob(job);
             }}
           />
         )}
 
+        {(pipelineView === "pending" || pipelineView === "evaluated") && (
+          <label className="score-filter">Minimum score <select value={minimumScore} onChange={e => setMinimumScore(Number(e.target.value))}>
+            {[0, 3, 3.5, 4, 4.5].map(score => <option key={score} value={score}>{score === 0 ? 'All scores' : `${score}+`}</option>)}
+          </select></label>
+        )}
         {/* Pipeline Table */}
-        <div className="table-container" style={{ display: activeTab === "manual" ? "none" : "block" }}>
+        <div className="table-container" style={{ display: pipelineView === "manual" ? "none" : "block" }}>
           <table className="jobs-table">
             <thead>
               <tr>
@@ -873,7 +1070,7 @@ export function App() {
                   </td>
                 </tr>
               ) : (
-                filteredJobs.slice(0, 100).map((job) => {
+                visibleJobs.map((job) => {
                   let scoreClass = "score-none";
                   if (job.fitScore) {
                     if (job.fitScore >= 4.0) scoreClass = "score-high";
@@ -920,9 +1117,14 @@ export function App() {
                         <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                           <span>{job.title}</span>
                           {job.manualEntry && <span className="badge badge-manual">MANUAL</span>}
+                          {job.reportNumber && (
+                            <span className="badge" style={{ background: "rgba(56, 189, 248, 0.15)", color: "#7dd3fc", border: "1px solid rgba(56, 189, 248, 0.35)", fontSize: "11px", padding: "1.5px 6px", borderRadius: "4px" }}>
+                              #{job.reportNumber}
+                            </span>
+                          )}
                           {job.matchClassification && (
-                            <span className={`badge-match badge-match-${job.matchClassification.toLowerCase().replaceAll(" ", "-")}`} title={job.reason}>
-                              {isBestMatchOffer(job) && <Star size={11} fill="#facc15" />}{job.matchClassification}
+                            <span className={`badge-match badge-match-${job.matchClassification.toLowerCase().replaceAll(" ", "-")}`} title={job.reasonDisplay || job.reason}>
+                              {isBestMatchOffer(job) && <Star size={11} fill="currentColor" />}{job.matchClassification}
                             </span>
                           )}
                           {((job.title + " " + (job.extra || "")).toLowerCase().includes("magento") || (job.title + " " + (job.extra || "")).toLowerCase().includes("hyva")) && (
@@ -936,13 +1138,9 @@ export function App() {
                             </span>
                           )}
                         </div>
-                        {(job.reasonDisplay || job.reason) && (
-                          <div className="match-reason">
-                            {job.reasonDisplay || `${job.matchClassification} Reason: ${job.reason}${job.compatibilityPercent ? ` | ${job.compatibilityPercent}% compatible` : ""}`}
-                          </div>
-                        )}
+                        {(job.reasonDisplay || job.reason) && <button className="reason-toggle" title={job.reasonDisplay || job.reason} onClick={(event) => { event.stopPropagation(); handleSelectJob(job); }}>ⓘ Why this match</button>}
                       </td>
-                      <td style={{ color: "#38bdf8" }}>{job.company}</td>
+                      <td style={{ color: "var(--text-main)" }}>{job.company}</td>
                       <td>{job.location}</td>
                       <td>
                         <span
@@ -984,7 +1182,7 @@ export function App() {
                                 : "#cbd5e1"
                           }}
                         >
-                          {job.status}
+                          {job.pipelineScore != null ? "evaluated" : job.status}
                         </span>
                       </td>
                       <td>
@@ -992,43 +1190,47 @@ export function App() {
                         {job.manualEntry && job.addedAt && <div className="source-added">Added {new Date(job.addedAt).toLocaleString()}</div>}
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
-                        <div style={{ display: "flex", gap: "6px" }}>
-                          {job.url.startsWith("http") && <button className="btn btn-outline btn-sm" title="Open external job URL" onClick={() => handleOpen("url", job.url)}><ExternalLink size={12} /></button>}
-                          <button
-                            className="btn btn-secondary btn-sm"
-                            title="Run LLM evaluation"
-                            disabled={isEvaluating === job.id}
-                            onClick={() => handleEvaluate(job)}
-                          >
-                            {isEvaluating === job.id ? <span className="spinner" /> : "Eval"}
-                          </button>
-                          <button
-                            className="btn btn-primary btn-sm"
-                            title="Generate AI-Tailored CV PDF"
-                            disabled={Boolean(activeOperation)}
-                            onClick={() => handleTailorCv(job)}
-                          >
-                            {jobOperation ? <><span className="spinner" /> {jobOperation.currentStage}</> : "Tailor CV"}
-                          </button>
-                          <button className="btn btn-outline btn-sm" title="Generate or view Cover Letter" disabled={Boolean(activeOperation)} onClick={() => void handleCoverLetter(job)}>
-                            Cover
-                          </button>
-                          {jobOperation && (
-                            <button className="btn btn-danger btn-sm" disabled={jobOperation.status === "CANCELLING" || cancellingOperationId === jobOperation.operationId} onClick={() => void handleCancelOperation(jobOperation.operationId)}>
-                              {jobOperation.status === "CANCELLING" || cancellingOperationId === jobOperation.operationId ? "Cancelling..." : "Cancel"}
-                            </button>
-                          )}
-                          {job.hasTailoredCv && (
+                        <div className="row-actions">
+                          <div className="row-actions-line">
+                            {automation.button(job)}
+                            {job.url.startsWith("http") && <button className="btn btn-outline btn-sm" title="Open external job URL" onClick={() => handleOpen("url", job.url)}><ExternalLink size={12} /></button>}
                             <button
-                              className="btn btn-outline btn-sm"
-                              style={{ borderColor: "rgba(56, 189, 248, 0.5)", color: "#38bdf8", padding: "4px 8px" }}
-                              title="View AI Tailoring Changes"
-                              disabled={isLoadingDiff}
-                              onClick={() => handleViewDiff(job)}
+                              className="btn btn-eval btn-sm"
+                              title="Run LLM evaluation"
+                              disabled={isEvaluating === job.id}
+                              onClick={() => handleEvaluate(job)}
                             >
-                              🔍 Changes
+                              {isEvaluating === job.id ? <span className="spinner" /> : "Eval"}
                             </button>
-                          )}
+                          </div>
+                          <div className="row-actions-line">
+                            <button
+                              className="btn btn-primary btn-sm"
+                              title="Generate AI-Tailored CV PDF"
+                              disabled={Boolean(activeOperation)}
+                              onClick={() => handleTailorCv(job)}
+                            >
+                              {jobOperation ? <><span className="spinner" /> {jobOperation.currentStage}</> : "Tailor CV"}
+                            </button>
+                            <button className="btn btn-cover btn-sm" title="Generate or view Cover Letter" disabled={Boolean(activeOperation)} onClick={() => void handleCoverLetter(job)}>
+                              Cover
+                            </button>
+                            {jobOperation && (
+                              <button className="btn btn-danger btn-sm" disabled={jobOperation.status === "CANCELLING" || cancellingOperationId === jobOperation.operationId} onClick={() => void handleCancelOperation(jobOperation.operationId)}>
+                                {jobOperation.status === "CANCELLING" || cancellingOperationId === jobOperation.operationId ? "Cancelling..." : "Cancel"}
+                              </button>
+                            )}
+                            {job.hasTailoredCv && (
+                              <button
+                                className="btn btn-outline btn-sm"
+                                title="View AI Tailoring Changes"
+                                disabled={isLoadingDiff}
+                                onClick={() => handleViewDiff(job)}
+                              >
+                                Changes
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -1038,12 +1240,201 @@ export function App() {
             </tbody>
           </table>
         </div>
-      </div>
+        {pipelineView === "pending" && automation.toolbar(visibleJobs, filteredJobs.length)}
+        {automation.history}
+      </div>}
+
+      {activeTab === "applied" && (
+        <section className="card applied-card">
+          <div className="card-header">
+            <div className="card-title">
+              <FileCheck size={18} /> Applied applications ({appliedJobs.length})
+            </div>
+            <div className="applied-controls" style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+              <button className="btn btn-outline" onClick={() => void copyAppliedJson()} title="Copy every application marked applied, regardless of search or filters">
+                Copy all as JSON
+              </button>
+              <input
+                type="text"
+                className="search-input"
+                placeholder="Search applied jobs..."
+                value={appliedSearch}
+                onChange={(e) => setAppliedSearch(e.target.value)}
+                style={{ minWidth: "220px" }}
+              />
+              <select value={appliedStatus} onChange={(e) => setAppliedStatus(e.target.value as typeof appliedStatus)}>
+                <option value="ALL">All statuses</option>
+                <option value="No Response">No Response</option>
+                <option value="Interview">Interview</option>
+                <option value="Offer">Offer</option>
+                <option value="Rejected">Rejected</option>
+              </select>
+            </div>
+          </div>
+          <div className="table-container">
+            <table className="jobs-table applied-table">
+              <thead>
+                <tr>
+                  <th onClick={() => handleAppliedSort("company")} className="sortable-th" title="Sort by Company">
+                    <div className="th-content">
+                      <span>Company</span>
+                      {renderSortIcon("company")}
+                    </div>
+                  </th>
+                  <th onClick={() => handleAppliedSort("title")} className="sortable-th" title="Sort by Job Title">
+                    <div className="th-content">
+                      <span>Job Title</span>
+                      {renderSortIcon("title")}
+                    </div>
+                  </th>
+                  <th onClick={() => handleAppliedSort("location")} className="sortable-th" title="Sort by Location">
+                    <div className="th-content">
+                      <span>Location</span>
+                      {renderSortIcon("location")}
+                    </div>
+                  </th>
+                  <th onClick={() => handleAppliedSort("date")} className="sortable-th" title="Sort by Date Sent">
+                    <div className="th-content">
+                      <span>Date Sent</span>
+                      {renderSortIcon("date")}
+                    </div>
+                  </th>
+                  <th onClick={() => handleAppliedSort("status")} className="sortable-th" title="Sort by Status">
+                    <div className="th-content">
+                      <span>Status</span>
+                      {renderSortIcon("status")}
+                    </div>
+                  </th>
+                  <th onClick={() => handleAppliedSort("bid")} className="sortable-th" title="Sort by Proposed Rate / Bid">
+                    <div className="th-content">
+                      <span>Rate / Bid</span>
+                      {renderSortIcon("bid")}
+                    </div>
+                  </th>
+                  <th onClick={() => handleAppliedSort("source")} className="sortable-th" title="Sort by Source">
+                    <div className="th-content">
+                      <span>Source</span>
+                      {renderSortIcon("source")}
+                    </div>
+                  </th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {appliedJobs.map((job) => (
+                  <tr key={job.id} onClick={() => handleSelectJob(job)} style={{ cursor: "pointer" }}>
+                    <td style={{ color: "var(--text-main)", fontWeight: 600 }}>{job.company}</td>
+                    <td>{job.title}</td>
+                    <td>{job.location || "—"}</td>
+                    <td>{job.date || (job.addedAt ? new Date(job.addedAt).toLocaleDateString() : "—")}</td>
+                    <td>
+                      <span className={`status-badge status-${getAppliedStatusText(job).toLowerCase().replaceAll(" ", "-")}`}>
+                        {getAppliedStatusText(job)}
+                      </span>
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {editingBidId === job.id ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                          <input
+                            type="text"
+                            className="bid-inline-input"
+                            value={editingBidValue}
+                            onChange={(e) => setEditingBidValue(e.target.value)}
+                            placeholder="e.g. 250 PLN/h"
+                            autoFocus
+                            disabled={isSavingBid}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void handleSaveBid(job);
+                              if (e.key === "Escape") setEditingBidId(null);
+                            }}
+                            style={{
+                              padding: "4px 8px",
+                              fontSize: "12px",
+                              borderRadius: "4px",
+                              border: "1px solid var(--accent, #38bdf8)",
+                              background: "var(--card-bg, #0f172a)",
+                              color: "#fff",
+                              width: "110px"
+                            }}
+                          />
+                          <button
+                            className="btn btn-primary btn-xs"
+                            onClick={() => void handleSaveBid(job)}
+                            disabled={isSavingBid}
+                            title="Save rate"
+                          >
+                            <Check size={12} />
+                          </button>
+                          <button
+                            className="btn btn-outline btn-xs"
+                            onClick={() => setEditingBidId(null)}
+                            disabled={isSavingBid}
+                            title="Cancel"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div
+                          className="bid-cell"
+                          onClick={() => {
+                            setEditingBidId(job.id);
+                            setEditingBidValue(job.bid || "");
+                          }}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            cursor: "pointer",
+                            padding: "2px 6px",
+                            borderRadius: "4px"
+                          }}
+                          title="Click to edit proposed Rate / Bid"
+                        >
+                          <span style={{ color: job.bid ? "#34d399" : "var(--text-muted)", fontWeight: job.bid ? 600 : 400 }}>
+                            {job.bid || "—"}
+                          </span>
+                          <Edit2 size={12} className="edit-bid-icon" style={{ opacity: 0.4 }} />
+                        </div>
+                      )}
+                    </td>
+                    <td>{job.sourceName || (job.url.includes("justjoin") ? "JustJoin.it" : "Direct")}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <button className="btn btn-outline btn-sm" onClick={() => handleSelectJob(job)}>
+                          View
+                        </button>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => {
+                            setEditingBidId(job.id);
+                            setEditingBidValue(job.bid || "");
+                          }}
+                          title="Edit Rate / Bid"
+                        >
+                          <Edit2 size={12} /> Rate
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {appliedJobs.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="empty-cell">
+                      No applied jobs match this filter.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* SECTION 4: JOB DETAILS MODAL */}
       {selectedJob && (
-        <div className="modal-overlay" onClick={() => setSelectedJob(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay job-details-overlay" onClick={() => setSelectedJob(null)}>
+          <div className="modal-content" role="dialog" aria-label="Job details" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
                 <h2 className="modal-title">{selectedJob.title}</h2>
@@ -1052,6 +1443,7 @@ export function App() {
               <button
                 className="btn btn-outline btn-sm"
                 onClick={() => setSelectedJob(null)}
+                aria-label="Close job details"
               >
                 <X size={16} />
               </button>
@@ -1075,6 +1467,72 @@ export function App() {
                 <span className="detail-label">Current Status</span>
                 <span className="detail-val" style={{ textTransform: "capitalize" }}>
                   {selectedJob.status}
+                </span>
+              </div>
+              <div className="detail-item">
+                <span className="detail-label">Rate / Bid</span>
+                <span className="detail-val" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  {editingModalBid ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      <input
+                        type="text"
+                        value={modalBidValue}
+                        onChange={(e) => setModalBidValue(e.target.value)}
+                        placeholder="e.g. 250 PLN/h"
+                        autoFocus
+                        style={{
+                          padding: "2px 6px",
+                          fontSize: "12px",
+                          borderRadius: "4px",
+                          border: "1px solid var(--accent, #38bdf8)",
+                          background: "#0f172a",
+                          color: "#fff",
+                          width: "110px"
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            void handleSaveBid(selectedJob, modalBidValue);
+                            setEditingModalBid(false);
+                          }
+                          if (e.key === "Escape") setEditingModalBid(false);
+                        }}
+                      />
+                      <button
+                        className="btn btn-primary btn-xs"
+                        onClick={() => {
+                          void handleSaveBid(selectedJob, modalBidValue);
+                          setEditingModalBid(false);
+                        }}
+                        title="Save"
+                      >
+                        <Check size={11} />
+                      </button>
+                      <button
+                        className="btn btn-outline btn-xs"
+                        onClick={() => setEditingModalBid(false)}
+                        title="Cancel"
+                      >
+                        <X size={11} />
+                      </button>
+                    </span>
+                  ) : (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ color: selectedJob.bid ? "#34d399" : "var(--text-muted)", fontWeight: selectedJob.bid ? 600 : 400 }}>
+                        {selectedJob.bid || "—"}
+                      </span>
+                      <button
+                        className="btn btn-outline btn-xs"
+                        style={{ padding: "2px 4px", border: "none", cursor: "pointer" }}
+                        onClick={() => {
+                          setModalBidValue(selectedJob.bid || "");
+                          setEditingModalBid(true);
+                        }}
+                        title="Edit proposed Rate / Bid"
+                      >
+                        <Edit2 size={11} />
+                      </button>
+                    </span>
+                  )}
                 </span>
               </div>
             </div>
@@ -1124,7 +1582,7 @@ export function App() {
 
               {selectedJob.strengths && selectedJob.strengths.length > 0 && (
                 <div>
-                  <div style={{ fontSize: "12px", color: "#34d399", fontWeight: 600, marginBottom: "4px" }}>
+                  <div style={{ fontSize: "12px", color: "var(--text-main)", fontWeight: 600, marginBottom: "4px" }}>
                     Matching Strengths:
                   </div>
                   <div className="list-tags">
@@ -1154,8 +1612,15 @@ export function App() {
             </div>
 
             {/* Action Bar */}
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: "16px" }}>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <div className="job-actions">
+              <div className="job-apply-action">{automation.button(selectedJob)}</div>
+              <div className="job-artifact-status" aria-live="polite">
+                {artifactError || (selectedArtifacts
+                  ? `CV: ${selectedArtifacts.pdfPath ? "ready" : "not generated"} · Cover letter: ${selectedArtifacts.coverReady ? "ready" : "not generated"}`
+                  : "Checking artifacts…")}
+                {selectedArtifacts?.filename && <small title={selectedArtifacts.filename}>{selectedArtifacts.filename}</small>}
+              </div>
+              <div className="job-generate-actions">
                 <button
                   className="btn btn-primary"
                   disabled={Boolean(activeOperation)}
@@ -1172,23 +1637,31 @@ export function App() {
                 <button
                   className="btn btn-secondary"
                   disabled={Boolean(activeOperation)}
-                  onClick={() => void handleCoverLetter(selectedJob, Boolean(coverArtifact))}
+                  onClick={() => void handleCoverLetter(selectedJob, Boolean(selectedArtifacts?.coverReady))}
                 >
                   {selectedCoverOperation ? <span className="spinner" /> : <FileText size={14} />}
-                  {selectedCoverOperation ? selectedCoverOperation.currentStage : coverArtifact ? "Regenerate Cover Letter" : "Generate Cover Letter"}
+                  {selectedCoverOperation ? selectedCoverOperation.currentStage : selectedArtifacts?.coverReady ? "Regenerate Cover Letter" : "Generate Cover Letter"}
                 </button>
                 {selectedCoverOperation && (
                   <button className="btn btn-danger" disabled={selectedCoverOperation.status === "CANCELLING" || cancellingOperationId === selectedCoverOperation.operationId} onClick={() => void handleCancelOperation(selectedCoverOperation.operationId)}>
                     {selectedCoverOperation.status === "CANCELLING" || cancellingOperationId === selectedCoverOperation.operationId ? "Cancelling..." : "Cancel"}
                   </button>
                 )}
-                {coverArtifact && !selectedCoverOperation && (
-                  <button className="btn btn-outline" onClick={() => { setCoverJob(selectedJob); }}>View Cover Letter</button>
+                {selectedArtifacts?.coverReady && !selectedCoverOperation && (
+                  <button className="btn btn-outline" onClick={() => void handleCoverLetter(selectedJob)}>View Cover Letter</button>
                 )}
+              </div>
+              <div className="job-file-actions">
+                <button className="btn btn-outline" disabled={!selectedArtifacts?.pdfPath}
+                  title={selectedArtifacts?.filename || "Generate a tailored CV first"}
+                  onClick={() => void handleOpen("tailored-cv", selectedArtifacts!.pdfPath!)}><FileText size={14} /> Open CV</button>
+                <button className="btn btn-outline" disabled={!selectedArtifacts?.folderPath}
+                  title={selectedArtifacts?.folderPath || "Generate a CV or cover letter to create this job’s folder"}
+                  onClick={() => void handleOpen("cv-folder", selectedArtifacts!.folderPath!)}><Folder size={14} /> Open Folder</button>
                 {selectedJob.hasTailoredCv && (
                   <button
                     className="btn btn-outline"
-                    style={{ borderColor: "rgba(56, 189, 248, 0.5)", color: "#38bdf8" }}
+                    style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
                     onClick={() => handleViewDiff(selectedJob)}
                   >
                     🔍 View Tailoring Changes
@@ -1202,7 +1675,7 @@ export function App() {
                 </button>}
               </div>
 
-              <div style={{ display: "flex", gap: "8px" }}>
+              <div className="job-status-actions">
                 <button
                   className="btn btn-outline btn-sm"
                   onClick={() => handleStatusChange(selectedJob.url, "reviewed")}
@@ -1255,7 +1728,7 @@ export function App() {
                   <span>🎯 AI Tailoring Changes</span>
                   <span
                     className="badge"
-                    style={{ background: "rgba(168, 85, 247, 0.2)", color: "#c084fc", border: "1px solid rgba(168, 85, 247, 0.4)" }}
+                    style={{ background: "rgba(168, 85, 247, 0.2)", color: "var(--text-main)", border: "1px solid rgba(168, 85, 247, 0.4)" }}
                   >
                     {viewingDiff.aiModel || viewingDiff.model || "Default"}
                   </span>
@@ -1283,14 +1756,14 @@ export function App() {
                   fontSize: "0.85rem"
                 }}
               >
-                <div><strong>Tailored with AI:</strong> <span style={{ color: "#34d399" }}>Yes</span></div>
+                <div><strong>Tailored with AI:</strong> <span style={{ color: "var(--text-main)" }}>Yes</span></div>
                 <div><strong>Provider:</strong> {viewingDiff.aiProvider}</div>
-                <div><strong>Fact Check:</strong> <span style={{ color: "#34d399" }}>{viewingDiff.factValidation}</span></div>
+                <div><strong>Fact Check:</strong> <span style={{ color: "var(--text-main)" }}>{viewingDiff.factValidation}</span></div>
                 <div><strong>Page Budget:</strong> {viewingDiff.pages} pages</div>
                 {(viewingDiff.primaryDomain || viewingDiff.tailoringDiff?.primary_domain) && (
                   <div>
                     <strong>Primary domain:</strong>{" "}
-                    <span style={{ color: "#c084fc" }}>
+                    <span style={{ color: "var(--text-main)" }}>
                       {viewingDiff.primaryDomain || viewingDiff.tailoringDiff?.primary_domain}
                     </span>
                   </div>
@@ -1298,8 +1771,8 @@ export function App() {
               </div>
 
               {/* Summary Focus */}
-              <div style={{ background: "rgba(56, 189, 248, 0.05)", border: "1px solid rgba(56, 189, 248, 0.25)", padding: "14px 16px", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 8px 0", color: "#38bdf8", fontSize: "0.95rem" }}>📝 Professional Summary Focus</h4>
+              <div style={{ background: "var(--bg-primary)", border: "1px solid var(--border)", padding: "14px 16px", borderRadius: "8px" }}>
+                <h4 style={{ margin: "0 0 8px 0", color: "var(--text-muted)", fontSize: "0.95rem" }}>📝 Professional Summary Focus</h4>
                 <p style={{ margin: 0, fontSize: "0.9rem", lineHeight: "1.5", color: "#e2e8f0" }}>
                   {viewingDiff.tailoringDiff?.summary_focus || "Summary adapted specifically to this vacancy."}
                 </p>
@@ -1313,7 +1786,7 @@ export function App() {
                     <span
                       key={idx}
                       className="badge"
-                      style={{ background: "rgba(251, 191, 36, 0.15)", color: "#fbbf24", border: "1px solid rgba(251, 191, 36, 0.3)" }}
+                      style={{ background: "var(--bg-hover)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
                     >
                       {sk}
                     </span>
@@ -1323,7 +1796,7 @@ export function App() {
 
               {/* Skills Intentionally Omitted (Focused CV) */}
               {viewingDiff.tailoringDiff?.skills_omitted && viewingDiff.tailoringDiff.skills_omitted.length > 0 && (
-                <div style={{ background: "rgba(239, 68, 68, 0.05)", border: "1px solid rgba(239, 68, 68, 0.2)", padding: "14px 16px", borderRadius: "8px" }}>
+                <div style={{ background: "var(--bg-primary)", border: "1px solid var(--border)", padding: "14px 16px", borderRadius: "8px" }}>
                   <h4 style={{ margin: "0 0 8px 0", color: "#f87171", fontSize: "0.95rem" }}>🚫 Intentionally Omitted Skills (Focused CV)</h4>
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                     {viewingDiff.tailoringDiff.skills_omitted.map((item, idx) => (
@@ -1338,14 +1811,14 @@ export function App() {
 
               {/* Selected Projects */}
               <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)", padding: "14px 16px", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 8px 0", color: "#a855f7", fontSize: "0.95rem" }}>🚀 Selected Projects from Knowledge Base</h4>
+                <h4 style={{ margin: "0 0 8px 0", color: "var(--text-muted)", fontSize: "0.95rem" }}>🚀 Selected Projects from Knowledge Base</h4>
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   {viewingDiff.tailoringDiff?.projects_selected?.map((p, idx) => (
                     <div
                       key={idx}
                       style={{ padding: "8px 12px", background: "rgba(255,255,255,0.02)", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.05)" }}
                     >
-                      <strong style={{ color: "#c084fc" }}>{p.name}</strong>
+                      <strong style={{ color: "var(--text-main)" }}>{p.name}</strong>
                       <div style={{ fontSize: "0.85rem", color: "#94a3b8", marginTop: "2px" }}>{p.reason}</div>
                     </div>
                   ))}
@@ -1354,13 +1827,13 @@ export function App() {
 
               {/* JD Keywords Matched */}
               <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)", padding: "14px 16px", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 8px 0", color: "#34d399", fontSize: "0.95rem" }}>🎯 Key JD Requirements Addressed</h4>
+                <h4 style={{ margin: "0 0 8px 0", color: "var(--text-main)", fontSize: "0.95rem" }}>🎯 Key JD Requirements Addressed</h4>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                   {viewingDiff.tailoringDiff?.jd_keywords_matched?.map((kw, idx) => (
                     <span
                       key={idx}
                       className="badge"
-                      style={{ background: "rgba(52, 211, 153, 0.15)", color: "#34d399", border: "1px solid rgba(52, 211, 153, 0.3)" }}
+                      style={{ background: "rgba(52, 211, 153, 0.15)", color: "var(--text-main)", border: "1px solid rgba(52, 211, 153, 0.3)" }}
                     >
                       {kw}
                     </span>
@@ -1395,17 +1868,17 @@ export function App() {
       )}
 
       {/* SECTION 5: ACTIVITY PANEL */}
-      <div className="activity-panel">
+      {activeTab === "pipeline" && <div className="activity-panel">
         <div className="activity-header">
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <Clock size={16} color="#06b6d4" />
+            <Clock size={16} />
             <span>Section 5 — Activity & Engine Status:</span>
             {activeOperation ? (
-              <span style={{ color: "#38bdf8", display: "flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "6px" }}>
                 <span className="spinner" /> {activeOperation.type === "COVER_LETTER" ? "Cover Letter" : "Tailored CV"} — {activeOperation.currentStage}
               </span>
             ) : (
-              <span style={{ color: "#34d399" }}>Idle · Ready</span>
+              <span style={{ color: "var(--text-main)" }}>Idle · Ready</span>
             )}
           </div>
 
@@ -1440,7 +1913,7 @@ export function App() {
             {activity?.lastOp?.stdout || activity?.lastOp?.stderr || "No recent execution output."}
           </pre>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

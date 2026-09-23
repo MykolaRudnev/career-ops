@@ -275,6 +275,7 @@ const SYSTEM_PATHS = [
   'cv-sync-check.mjs',
   'verify-cv-facts.mjs',
   'verify-ats.mjs',
+  'resume-quality-check.mjs',
   'update-system.mjs',
   'path-resolver.mjs',
 
@@ -303,6 +304,7 @@ const SYSTEM_PATHS = [
   'liveness-api.mjs',
   'liveness-browser.mjs',
   'browser-extract.mjs',
+  'fetch-jd.mjs',
   'analyze-patterns.mjs',
   'calibrate.mjs',
   'upskill.mjs',

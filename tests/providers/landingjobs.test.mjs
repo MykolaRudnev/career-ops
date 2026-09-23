@@ -89,7 +89,7 @@ try {
     { fetchJson: async (url, opts) => { capturedUrl = url; capturedOpts = opts; return sample; } },
   );
 
-  if (capturedUrl === 'https://landing.jobs/api/v1/jobs') pass('landingjobs.fetch() requests the v1 feed URL');
+  if (capturedUrl === 'https://landing.jobs/api/v1/jobs?limit=50&offset=0') pass('landingjobs.fetch() requests the v1 feed URL');
   else fail(`landingjobs.fetch() requested ${JSON.stringify(capturedUrl)}`);
 
   if (capturedOpts && capturedOpts.redirect === 'error') pass('landingjobs.fetch() passes redirect:"error" (SSRF guard)');

@@ -36,7 +36,9 @@ import { serializePortals } from "./portals-serialize.mjs";
 /** Write the ephemeral filter file to a temp path; caller cleans it up. */
 export function writeTempPortals(f: FilterLists): string {
   const file = path.join(os.tmpdir(), `career-ops-explore-${randomUUID()}.yml`);
-  fs.writeFileSync(file, serializePortals(f), "utf8");
+  const base = loadYaml("portals.yml") || {};
+  const filters = yaml.load(serializePortals(f)) as Record<string, unknown>;
+  fs.writeFileSync(file, yaml.dump({ ...base, ...filters }), "utf8");
   return file;
 }
 

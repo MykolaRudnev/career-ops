@@ -201,6 +201,7 @@ export default {
       const description = contentToText(j.content);
       return {
         title: j.title || '',
+        sourceJobId:String(j.id),
         url: j.absolute_url,
         company: entry.name,
         location,

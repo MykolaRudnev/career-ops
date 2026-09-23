@@ -81,6 +81,12 @@ function escapeHtml(text) {
     .replace(/'/g, '&#39;');
 }
 
+// Summary emphasis is deliberately narrow: escape first, then interpret only
+// paired ** markers as semantic strong text. Arbitrary HTML remains escaped.
+function escapeSummaryHtml(text) {
+  return escapeHtml(text).replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+}
+
 // Sanitize a URL for an href attribute: only allow the schemes the template's
 // contact row uses, coerce bare emails/domains, drop javascript:/data: and other
 // script-bearing schemes, then HTML-escape for the attribute context.
@@ -354,7 +360,7 @@ function buildExperience(entries, partial) {
         ? e.bullets.filter(Boolean).map(b => `        <li>${escapeHtml(b)}</li>`).join('\n')
         : '';
       const location = e.location
-        ? `\n    <div class="job-location">${escapeHtml(e.location)}</div>`
+        ? `\n    <div class="job-location">${escapeHtml(e.location).replaceAll('·', '&#183;')}</div>`
         : '';
       return `<div class="job">
     <div class="job-header">
@@ -375,7 +381,7 @@ ${bullets}
       ? e.bullets.filter(Boolean).map(b => `<li>${escapeHtml(b)}</li>`).join('\n    ')
       : '';
     const blockValues = new Map([
-      ['LOCATION_BLOCK', { value: escapeHtml(e.location || ''), present: Boolean(e.location) }],
+      ['LOCATION_BLOCK', { value: escapeHtml(e.location || '').replaceAll('·', '&#183;'), present: Boolean(e.location) }],
     ]);
     return fillEntry(entryTemplate, blocks, {
       COMPANY: escapeHtml(e.company || ''),
@@ -410,7 +416,7 @@ function buildProjects(entries, partial) {
         ? `\n    <div class="project-tech">${escapeHtml(e.tech)}</div>`
         : '';
       return `<div class="project">
-    <div class="project-title">${nameHtml}${badge}</div>${desc}${tech}
+    <div class="project-title">${nameHtml}${badge}</div>${tech}${desc}
   </div>`;
     }).join('\n  ');
   }
@@ -632,7 +638,7 @@ function renderReport(payload, partials) {
     NAME: escapeHtml(candidate.name || ''),
     HEADLINE: escapeHtml(candidate.headline || candidate.title || ''),
     SECTION_SUMMARY: escapeHtml(sectionTitles.summary),
-    SUMMARY_TEXT: escapeHtml(payload.summary || ''),
+    SUMMARY_TEXT: escapeSummaryHtml(payload.summary || ''),
     SECTION_COMPETENCIES: escapeHtml(sectionTitles.competencies),
     COMPETENCIES: buildCompetencies(payload.competencies, partials.get('competencies')),
     SECTION_EXPERIENCE: escapeHtml(sectionTitles.experience),
@@ -670,6 +676,12 @@ function renderHtml(template, payload, templatePath) {
   // Drop the optional sections (projects, education) that have no entries, so
   // an absent one leaves no bare header behind. See cv-sections-core.mjs.
   html = stripEmptySections(html, payload, 'html');
+
+  // An explicitly blank label removes only the heading, never summary text.
+  if (payload.sections?.summary === '') {
+    html = html.replace(/<div class="section-title">\{\{SECTION_SUMMARY\}\}<\/div>\s*/, '');
+    html = html.replace('<div class="page">', '<div class="page recruiter-cv">');
+  }
 
   for (const [key, value] of Object.entries(substitutions)) {
     html = html.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), () => value);

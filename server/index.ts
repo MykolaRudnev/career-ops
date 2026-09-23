@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { readProviderHealth } from "../discovery/health.mjs";
 import express from "express";
 import cors from "cors";
 import path from "node:path";
@@ -6,8 +7,10 @@ import {
   WORKSPACE_ROOT,
   parsePipeline,
   updatePipelineStatus,
+  updateJobBid,
   getMasterCvStatus,
   getTailoredCvs,
+  getJobArtifacts,
   getLastScanInfo,
   openLocalTarget,
   getTailoringDiff
@@ -19,8 +22,11 @@ import { createManualJob, loadManualJobs } from "./manualJobs.ts";
 import { operationManager } from "./operations.ts";
 import { applicationCoverContext, loadCoverLetter, saveCoverLetterEdit } from "./coverLetter.ts";
 
+import { applicationHistory, recoverInterruptedApplications, startApplications } from "./application/service.ts";
+
 const app = express();
-const PORT = 3001;
+const PORT = Number(process.env.CAREER_OPS_DASHBOARD_PORT || 3001);
+if (!Number.isInteger(PORT) || PORT < 1024 || PORT > 65535) throw new Error("Invalid dashboard port");
 const HOST = "127.0.0.1"; // Security: localhost only
 
 app.use(cors({
@@ -29,6 +35,14 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: "2mb" }));
+
+app.get("/api/discovery/health", (_req, res) => {
+  try {
+    const file = path.join(WORKSPACE_ROOT, "data/discovery-health.json");
+    const saved = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
+    res.json(saved?.source_health || readProviderHealth());
+  } catch { res.status(500).json({error:"Source health unavailable"}); }
+});
 
 // AI providers are backend-owned allowlisted implementations; the browser never supplies commands.
 app.get("/api/ai/providers", async (req, res) => {
@@ -57,6 +71,25 @@ app.post("/api/ai/providers/:providerId/test", async (req, res) => {
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
   }
+});
+
+// Local application actions accept references to stored jobs, never arbitrary browser commands.
+app.use("/api/applications", (req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && !["http://localhost:5173", "http://127.0.0.1:5173", `http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`].includes(origin)) return res.status(403).json({ error: "Untrusted origin" });
+  if (req.method === "POST" && !req.is("application/json")) return res.status(415).json({ error: "JSON required" });
+  next();
+});
+app.get("/api/applications", (_req, res) => {
+  try { res.json({ attempts: applicationHistory() }); }
+  catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+app.post("/api/applications", (req, res) => {
+  try {
+    const { jobs, mode = "DRY_RUN", providerId, model } = req.body || {};
+    const operation = startApplications(jobs, { mode, providerId, model });
+    res.status(202).json({ operation });
+  } catch (error: any) { res.status(400).json({ error: error.message }); }
 });
 
 // 1. Overall System Status
@@ -93,10 +126,23 @@ app.get("/api/pipeline", (req, res) => {
     // Attach cached evaluations
     const enrich = (job: any) => {
       const evalData = careerOps.getEvaluationForDisplay(job);
-      if (evalData) {
-        return { ...job, ...evalData };
-      }
-      return job;
+      const merged = evalData ? { ...job, ...evalData } : job;
+      if (job.pipelineScore == null) return merged;
+      const score = job.pipelineScore;
+      const matchClassification = score >= 4.5 ? "BEST MATCH" : score >= 4.0 ? "STRONG MATCH" : score >= 3.0 ? "POSSIBLE MATCH" : "LOW MATCH";
+      return {
+        ...merged,
+        fitScore: score,
+        compatibilityPercent: Math.round((score - 1) * 25),
+        matchClassification,
+        compatibilityTier: score >= 4.0 ? "A" : score >= 3.0 ? "B" : "C",
+        recommendation: score >= 4.0 ? "APPLY" : score >= 3.0 ? "REVIEW" : "SKIP",
+        evaluatedFrom: "full-jd",
+        reason: `A-F report${job.reportNumber ? ` #${job.reportNumber}` : ""} · ${score}/5`,
+        reasonDisplay: `Evaluated ${score}/5${job.reportNumber ? ` in report #${job.reportNumber}` : ""}`,
+        reportNumber: job.reportNumber,
+        pipelineScore: score
+      };
     };
 
     res.json({
@@ -183,6 +229,15 @@ app.post("/api/cover-letter/generate", (req, res) => {
   }
 });
 
+app.post("/api/job/artifacts", (req, res) => {
+  try {
+    const { job } = req.body || {};
+    if (typeof job?.company !== "string" || typeof job?.title !== "string" || !job.company || !job.title) return res.status(400).json({ error: "Missing job company or title" });
+    const cover = loadCoverLetter(job);
+    res.json({ ...getJobArtifacts(job), coverReady: Boolean(cover) });
+  } catch (error: any) { res.status(400).json({ error: error.message }); }
+});
+
 app.post("/api/cover-letter/status", (req, res) => {
   try {
     const { job } = req.body || {};
@@ -204,7 +259,7 @@ app.put("/api/cover-letter", (req, res) => {
 });
 
 app.get("/api/cover-letter/download", (req, res) => {
-  const job = { company: String(req.query.company || ""), title: String(req.query.title || "") };
+  const job = { company: String(req.query.company || ""), title: String(req.query.title || ""), url: String(req.query.url || "") };
   const artifact = loadCoverLetter(job);
   if (!artifact) return res.status(404).json({ success: false, error: "Cover Letter not found" });
   res.download(artifact.textPath, "cover-letter.txt");
@@ -298,6 +353,20 @@ app.post("/api/pipeline/status", async (req, res) => {
   }
 });
 
+// 6b. Update Job Proposed Rate / Bid
+app.post("/api/job/bid", async (req, res) => {
+  try {
+    const { url, bid, jobId } = req.body || {};
+    if (!url && !jobId) {
+      return res.status(400).json({ success: false, error: "Missing url or jobId" });
+    }
+    const updated = await updateJobBid(url || "", bid || "", jobId);
+    res.json({ success: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 7. Open Local Target (xdg-open)
 app.post("/api/open", async (req, res) => {
   try {
@@ -340,6 +409,8 @@ if (fs.existsSync(distPath)) {
     }
   });
 }
+
+recoverInterruptedApplications();
 
 // Start listening strictly on 127.0.0.1
 app.listen(PORT, HOST, () => {

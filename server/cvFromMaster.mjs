@@ -130,7 +130,7 @@ export function parseCvMarkdown(markdown) {
     .filter(Boolean);
 
   const education = section(markdown, "Education").split("\n").map(parseTitleOrgYear).filter(Boolean);
-  const certifications = section(markdown, "Courses & Continuous Learning").split("\n").map(parseTitleOrgYear).filter(Boolean);
+  const certifications = canonicalProfessionalDevelopment(section(markdown, "Courses & Continuous Learning").split("\n").map(parseTitleOrgYear).filter(Boolean));
   const languages = section(markdown, "Languages")
     .split("\n")
     .map((line) => {
@@ -156,7 +156,39 @@ export function readMasterCvMarkdown() {
 }
 
 export function loadParsedMasterCv() {
-  return parseCvMarkdown(readMasterCvMarkdown());
+  const parsed = parseCvMarkdown(readMasterCvMarkdown());
+  const profile = yaml.load(fs.readFileSync(path.join(WORKSPACE_ROOT, "config", "profile.yml"), "utf8")) || {};
+  const locations = profile.cv?.experience_locations || {};
+  parsed.experience = parsed.experience.map(entry => ({
+    ...entry,
+    location: locations[entry.company] || entry.location
+  }));
+  return parsed;
+}
+
+// The model selects evidence; identity, chronology and engagement locations
+// remain canonical even if a provider returns stale or reordered metadata.
+export function canonicalTailoredExperience(experience, master = loadParsedMasterCv().experience) {
+  if (!Array.isArray(experience) || experience.length !== master.length) {
+    throw new Error("Tailored CV must preserve every master employer.");
+  }
+  return master.map(entry => {
+    const matches = experience.filter(item => item.company === entry.company);
+    if (matches.length !== 1 || !Array.isArray(matches[0].bullets) || !matches[0].bullets.length) {
+      throw new Error(`Missing or duplicate tailored experience: ${entry.company}`);
+    }
+    return { ...entry, bullets: matches[0].bullets };
+  });
+}
+
+// Factual history is independent of the JD. Unknown dates stay at the end;
+// stable sorting preserves source order for equal dates without mutating data.
+export function canonicalProfessionalDevelopment(certifications) {
+  const date = entry => {
+    const value = Date.parse(entry.year || "");
+    return Number.isFinite(value) ? value : -Infinity;
+  };
+  return [...certifications].sort((a, b) => date(b) - date(a));
 }
 
 export function candidateContactFields(candidate = loadProfile()) {
@@ -184,10 +216,10 @@ export function buildMasterCvPayload(overrides = {}) {
       headline
     },
     sections: {
-      summary: "Professional Summary",
+      summary: "",
       skills: "Technical Skills",
       experience: "Work Experience",
-      projects: "Key Projects",
+      projects: "Projects",
       education: "Education",
       certifications: "Professional Development",
       interests: "Languages"

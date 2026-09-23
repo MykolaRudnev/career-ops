@@ -7,7 +7,7 @@ export interface PipelineJob {
   countries: string[];
   workModel: string;
   date: string;
-  status: "pending" | "reviewed" | "applied" | "skipped";
+  status: "pending" | "reviewed" | "applied" | "skipped" | "expired";
   extra: string;
   fitScore?: number;
   recommendation?: "APPLY" | "REVIEW" | "SKIP";
@@ -22,7 +22,10 @@ export interface PipelineJob {
   primaryStack?: string[];
   responsibilitySplit?: { frontend: string; backend: string; platform: string };
   evaluatedFrom?: "full-jd" | "pipeline-summary";
+  reportNumber?: string;
+  pipelineScore?: number;
   salary?: string;
+  bid?: string;
   hasTailoredCv?: boolean;
   tailoredPdfPath?: string;
   source?: string;
@@ -34,12 +37,26 @@ export interface PipelineJob {
   notes?: string;
 }
 
+export function appliedJobsJson(jobs: PipelineJob[]): string {
+  return JSON.stringify(jobs.filter((job) => job.status === "applied").map((job) => ({
+    company: job.company,
+    title: job.title,
+    url: job.url,
+    location: job.location || "",
+    date: job.date || "",
+    status: "applied",
+    bid: job.bid || "",
+    source: job.sourceName || "",
+    notes: job.notes || "",
+  })), null, 2);
+}
+
 export type OperationStatus = "PENDING" | "RUNNING" | "CANCELLING" | "CANCELLED" | "COMPLETED" | "FAILED";
 
 export interface OperationRecord {
   operationId: string;
   jobId: string;
-  type: "TAILORED_CV" | "COVER_LETTER";
+  type: "TAILORED_CV" | "COVER_LETTER" | "APPLICATION";
   status: OperationStatus;
   startedAt: string;
   updatedAt: string;
@@ -79,6 +96,9 @@ export interface CoverLetterArtifact {
     basedOnTailoredCv: boolean;
     tailoredCvModifiedAt: string | null;
     wordCount: number;
+    characterCount?: number;
+    format?: "short-form";
+    url?: string;
     factValidation: "PASS" | "WARN";
     editedAt?: string;
     editCount?: number;
@@ -118,6 +138,11 @@ export interface SystemStatus {
 }
 
 export interface TailoredCvFile {
+  jobUrl?: string;
+  company?: string;
+  role?: string;
+  displayName: string;
+  folderPath: string;
   filename: string;
   filePath: string;
   sizeBytes: number;
@@ -191,7 +216,8 @@ export async function runBulkJobSearch(): Promise<any> {
 }
 
 export function isBestMatchOffer(job: PipelineJob): boolean {
-  return job.matchClassification === "BEST MATCH";
+  return job.matchClassification === "BEST MATCH"
+    || (job.matchClassification === "STRONG MATCH" && (job.recommendation === "APPLY" || (job.fitScore || 0) >= 4));
 }
 
 export async function rerankPipeline(fullJdLimit = 60): Promise<any> {
@@ -261,7 +287,7 @@ export async function saveCoverLetter(job: PipelineJob, content: string): Promis
 }
 
 export function coverLetterDownloadUrl(job: PipelineJob): string {
-  return `${API_BASE}/api/cover-letter/download?company=${encodeURIComponent(job.company)}&title=${encodeURIComponent(job.title)}`;
+  return `${API_BASE}/api/cover-letter/download?company=${encodeURIComponent(job.company)}&title=${encodeURIComponent(job.title)}&url=${encodeURIComponent(job.url)}`;
 }
 
 export async function fetchApplicationCoverContext(job: PipelineJob, maxChars = 0): Promise<string> {
@@ -359,6 +385,17 @@ export async function updateJobStatus(url: string, status: "reviewed" | "applied
   return data.success;
 }
 
+export async function updateJobBid(url: string, bid: string, jobId?: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/api/job/bid`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, bid, jobId })
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || "Failed to update rate/bid");
+  return data.success;
+}
+
 export async function openTarget(type: "master-cv" | "master-pdf" | "master-folder" | "cv-folder" | "tailored-cv" | "url", payload?: string): Promise<any> {
   const res = await fetch(`${API_BASE}/api/open`, {
     method: "POST",
@@ -420,4 +457,35 @@ export async function fetchTailoringDiff(company: string, title?: string): Promi
   if (!res.ok) return null;
   const data = await res.json();
   return data.data || null;
+}
+
+export async function fetchApplicationHistory(): Promise<any[]> {
+  const res = await fetch('/api/applications');
+  if (!res.ok) throw new Error('Could not load application history');
+  return (await res.json()).attempts;
+}
+export async function startApplications(jobs: PipelineJob[], mode: 'DRY_RUN' | 'SUBMIT', providerId: string, model: string): Promise<OperationRecord> {
+  const res = await fetch('/api/applications', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobs: jobs.map(({ id, url }) => ({ id, url })), mode, providerId, model })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not start applications');
+  return data.operation;
+}
+
+export interface JobArtifacts {
+  pdfPath: string | null;
+  folderPath: string | null;
+  filename: string | null;
+  modified: string | null;
+  coverReady: boolean;
+}
+export async function fetchJobArtifacts(job: PipelineJob): Promise<JobArtifacts> {
+  const res = await fetch(`${API_BASE}/api/job/artifacts`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Could not load job artifacts");
+  return data;
 }

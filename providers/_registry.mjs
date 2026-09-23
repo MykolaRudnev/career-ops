@@ -7,6 +7,7 @@
 // without importing scan.mjs itself (which has top-level side effects and would
 // form an import cycle via classifyFetchError).
 
+import { wrapProvider } from '../discovery/runtime.mjs';
 import { existsSync, readdirSync } from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
@@ -45,8 +46,9 @@ export async function loadProviders(dir) {
       console.error(`⚠️  ${file}: duplicate provider id "${p.id}" — keeping first`);
       continue;
     }
-    providers.set(p.id, p);
+    providers.set(p.id, wrapProvider(p));
   }
+  for (const id of ['pracuj','protocol','bulldogjob']) if (!providers.has(id)) providers.set(id, wrapProvider({id,fetch:async()=>[]}));
   return providers;
 }
 

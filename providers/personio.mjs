@@ -1,3 +1,4 @@
+import { htmlToText } from './_html-to-text.mjs';
 import { decodeEntities } from './_html-entities.mjs';
 // @ts-check
 /** @typedef {import('./_types.js').Provider} Provider */
@@ -65,7 +66,7 @@ export default {
   async fetch(entry, ctx) {
     const host = resolveHost(entry);
     if (!host) throw new Error(`personio: cannot derive feed URL for ${entry.name}`);
-    const feedUrl = `https://${host}/xml`;
+    const feedUrl = `https://${host}/xml?language=en`;
     assertPersonioUrl(feedUrl);
     // redirect:'error' prevents SSRF via server-side redirects; combined with
     // assertPersonioUrl above it guarantees the final hostname stays in-domain.
@@ -73,7 +74,7 @@ export default {
       const text = await ctx.fetchText(feedUrl, { redirect: 'error' });
       return parsePersonioXml(text, entry.name, host);
     } catch (err) {
-      if (err?.status !== 404) throw err;
+      if (err?.status !== 404 || !entry.allow_html_fallback) throw err;
       // Some tenants disable the public XML feed. The careers page itself is
       // still server-rendered with the full job list in the initial HTML, so
       // fall back to scraping it directly instead of giving up.
@@ -144,7 +145,11 @@ export function parsePersonioXml(xml, companyName, host) {
   // literal "</position>" which would otherwise truncate the non-greedy block
   // match. It also drops the per-section <name>/<value> pairs whose nested
   // <name> would race the position's own <name> (same for any other scalar tag).
-  const stripped = xml.replace(/<jobDescriptions\b[^>]*>[\s\S]*?<\/jobDescriptions>/gi, '');
+  const descriptions = [];
+  const stripped = xml.replace(/<jobDescriptions\b[^>]*>[\s\S]*?<\/jobDescriptions>/gi, block => {
+    descriptions.push(htmlToText([...block.matchAll(/<value\b[^>]*>([\s\S]*?)<\/value>/gi)].map(m=>extractText(m[1])).join('\n'),100000));
+    return `<descriptionIndex>${descriptions.length-1}</descriptionIndex>`;
+  });
   const blocks = stripped.match(/<position\b[^>]*>[\s\S]*?<\/position>/g) || [];
   for (const scalar of blocks) {
     const title = tagText(scalar, 'name');
@@ -166,6 +171,7 @@ export function parsePersonioXml(xml, companyName, host) {
 
     jobs.push({
       title,
+      sourceJobId:id, description:(tagText(scalar,'descriptionIndex') ? descriptions[Number(tagText(scalar,'descriptionIndex'))] : '') || '', employmentType:tagText(scalar,'employmentType'), seniority:tagText(scalar,'seniority'), department:tagText(scalar,'department'),
       url: `https://${host}/job/${id}`,
       location: offices.join(', '),
       company: companyName,
@@ -226,6 +232,7 @@ export function parsePersonioHtml(html, companyName, host) {
     seen.add(id);
     jobs.push({
       title,
+      sourceJobId:id,
       url: `https://${host}/job/${id}`,
       location,
       company: companyName,

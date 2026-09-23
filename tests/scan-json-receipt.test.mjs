@@ -121,6 +121,7 @@ test('--json emits exactly one clean successful receipt', () => {
       added_urls: [],
       errors: [],
       dry_run: true,
+      status: 'READY',
     });
     assert.match(result.stderr, /Portal Scan/);
   } finally {
@@ -128,7 +129,7 @@ test('--json emits exactly one clean successful receipt', () => {
   }
 });
 
-test('--json returns exit 2 and structured errors for a partial failure', () => {
+test('--json completes with DEGRADED status and structured provider errors', () => {
   const root = workspace([
     'tracked_companies:',
     '  - name: Broken Co',
@@ -138,7 +139,8 @@ test('--json returns exit 2 and structured errors for a partial failure', () => 
   ].join('\n'));
   try {
     const result = runJson(root);
-    assert.equal(result.status, 2, result.stderr);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).status, 'DEGRADED');
     const receipt = JSON.parse(result.stdout);
     assert.equal(receipt.version, 'careerops.scan.receipt@1');
     assert.equal(receipt.dry_run, true);
