@@ -39,7 +39,7 @@
 - **Role:** Lead Front-End Developer — Magento 2 / Hyvä (Jun 2026 – Present)
 - **Context:** Direct client customer-facing Magento 2 / Hyvä e-commerce platform.
 - **Verified Scope & Deliverables:**
-  - Leading frontend delivery for a modern Magento 2 / Hyvä storefront.
+  - Lead frontend on the rebuild from Adobe Commerce headless to Magento Open Source with Hyvä Theme, Hyvä Checkout, and Hyvä CMS. Catalog pages reach Lighthouse 99–100.
   - Primary frontend technical contact for client management, evaluating feasibility and architecture.
   - Translating business, SEO, and marketing requirements into technical frontend tasks and sprints.
   - Building Hyvä CMS structures, reusable components, multi-language translations, and frontend enhancements.
@@ -72,17 +72,16 @@
 - **Role:** Front-End Developer (Jul 2022 – Oct 2024)
 - **Context:** Supporting enterprise e-commerce delivery across ~9 Magento 2 storefronts.
 - **Verified Projects:**
-  - **British American Tobacco (4 storefronts):** Product pages, checkout flows, customer account areas, and multi-market storefront delivery.
+  - **British American Tobacco (4 storefronts):** On myglo (https://www.myglo.com/de/de), took part in a full redesign with the team, including frontend decisions on design, logic, and architecture. The other markets: support and fixes.
   - **catering24.co.uk:** Custom theme and CMS-driven storefront with advanced commercial integrations.
-  - **solar.com.pl:** Custom storefront with specialized catalog integrations and custom UI components.
+  - **solar.com.pl:** Full redesign: new pages, including category pages and checkout, plus CMS handover and training for the client's editors.
 
 ### 5. 3MK Protection (3mk.pl)
 - **Role:** Front-End Developer (Mar 2024 – May 2024)
 - **Context:** Mobile accessories manufacturer e-commerce platform.
 - **Verified Scope & Deliverables:**
-  - Built Magento 2 storefront from scratch.
-  - Delivered Homepage, Category/PLP, Cart, and custom CMS components.
-  - Engineered custom UI elements focused on UX, responsive mobile ergonomics, and checkout conversion.
+  - Built the Magento storefront from scratch with the team: category pages, checkout, and other storefront pages.
+  - Created custom CMS page templates for the SEO team to reuse, and trained the client on the CMS.
 
 ### 6. ORBA
 - **Role:** Frontend Developer (Jan 2020 – Apr 2020)
@@ -93,10 +92,18 @@
 
 ---
 
+## Supplementary commercial evidence from the live portfolio
+
+Source: https://www.mrudnev.com/case-studies, visible project cards inspected 2026-09-10. See `knowledge/projects.md` for source limitations; no employer or dates are inferred.
+
+- **Doppler Manufaktur:** Magento 2 store; JavaScript/XML feature delivery, custom elements and bug fixes. Portfolio links https://doppler-manufaktur.com/.
+- **bragan.net:** Automotive parts store; Magento 2 updates and bug fixes with JavaScript/XML. Current linked-site availability was not verified.
+- Excellent has no unambiguous linked business identity, so it is not selectable. Claspwell founder/backend claims are not imported into the canonical career history.
+
 ## Tailoring Rules for Magento / Hyvä Vacancies
 - **PRIMARY DOMAIN:** `MAGENTO_HYVA`
 - **Headline Priority:** `Lead / Senior Front-End Developer | Magento 2 | Hyvä | E-commerce Architecture`
 - **Summary:** "Senior Frontend Developer with deep Magento 2 / Hyvä experience..."
-- **Project whitelist:** HUBER SE, Lufed IT, housetipster.com, edycja.pl, fmic.pl, dreamroots.pl, hbsgroup.net, paypair.com, British American Tobacco, catering24.co.uk, solar.com.pl, 3mk.pl. Select **3 Magento projects**; optionally 1 React project only if the JD explicitly requests React/Next.js. Magento projects must remain ≥75%.
+- **Project preferences:** Default four, in order: HUBER SE, 3MK Protection, British American Tobacco, solar.com.pl. On BAT, myglo (myglo.com/de/de) is the full redesign done with the team; the other markets were support and fixes. Lufed IT, housetipster.com, edycja.pl, fmic.pl, dreamroots.pl, hbsgroup.net, paypair.com, and catering24.co.uk stay in the whitelist but are not the default set. Optionally one React project only if the JD explicitly requests React/Next.js. Magento projects must remain ≥75%.
 - **Do not select** React SaaS/recruitment/NFT projects (copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app) unless the JD explicitly requests React/Next.js.
 - **Skills:** Magento 2, Hyvä, Hyvä CMS, Alpine.js, XML/Layout, PHTML, JavaScript, Tailwind, LESS/SASS, PLP/PDP/Cart/Checkout/CMS, REST, GraphQL.

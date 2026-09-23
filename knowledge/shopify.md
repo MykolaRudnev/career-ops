@@ -92,6 +92,6 @@
 - **PRIMARY DOMAIN:** `SHOPIFY` (required). React/Next.js may be secondary only when the JD explicitly asks for it.
 - **Headline Priority:** `Senior Shopify / Front-End Developer | Liquid | JavaScript | E-commerce`
 - **Summary:** "Frontend / Shopify Developer..." or "Senior E-Commerce Frontend Developer..." — never the generic React summary.
-- **Project whitelist (dominant):** Glasy.pl, Ascent, Warmsome, Pixel25, Berg's, Diamandia (caveat required). Select **3 Shopify projects**; add at most 1 supporting React e-commerce project if the JD requires React/Next.js **and** Shopify evidence alone is insufficient. Shopify projects must remain the majority (≥75%).
+- **Project whitelist (dominant):** Default four, in order: Glasy.pl, Pixel25, Warmsome, Berg's. Ascent and Diamandia stay in the whitelist (Diamandia caveat required) but are not the default set. Add at most one supporting React e-commerce project if the JD requires React/Next.js **and** Shopify evidence alone is insufficient. Shopify projects must remain the majority (≥75%).
 - **Do not normally select:** ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de.
 - **Skills:** Shopify, Liquid, Custom Sections, JSON Templates, Shopify Admin, JavaScript, HTML/CSS, REST, GraphQL, Responsive, CRO. Do not prominently show Magento/Hyvä unless the JD values multi-platform work.
