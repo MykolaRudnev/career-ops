@@ -80,6 +80,35 @@ test("Shopify CV with no Shopify project fails", () => {
   assert.ok(validation.reasons.some((r) => /no Shopify-specific project/i.test(r)));
 });
 
+test("default offer tracks use the pinned four projects in order", () => {
+  const offers = [
+    {
+      title: "Senior Magento 2 / Hyvä Frontend Developer",
+      jd: "Hyvä Theme, Hyvä Checkout, PLP, PDP, and checkout on Magento Open Source.",
+      expect: ["HUBER SE", "3MK Protection", "British American Tobacco", "solar.com.pl"]
+    },
+    {
+      title: "Senior React / Next.js Developer",
+      jd: "React, Next.js, TypeScript, component systems, and product UI.",
+      expect: ["copernicspace.com", "ponadczasowi.pl", "hrk.pl", "carneoo.de"]
+    },
+    {
+      title: "Shopify Developer",
+      jd: "Custom Shopify themes, Liquid sections, and Online Store 2.0.",
+      expect: ["Glasy.pl", "Pixel25", "Warmsome", "Berg's"]
+    }
+  ];
+  for (const offer of offers) {
+    const selected = selectProjectsForDomain(classifyDomain(offer.title, offer.jd).primary, offer);
+    assert.deepEqual(selected.projects.map((project) => project.name), offer.expect, offer.title);
+    assert.equal(validateDomainConsistency({
+      primaryDomain: classifyDomain(offer.title, offer.jd).primary,
+      projects: selected.projects,
+      jdText: `${offer.title}\n${offer.jd}`
+    }).ok, true, offer.title);
+  }
+});
+
 test("correct Shopify / Magento / React pools pass domain validation", () => {
   const shopify = selectProjectsForDomain("SHOPIFY", { title: "Shopify Developer", company: "Attomy" });
   const react = selectProjectsForDomain("REACT_FRONTEND", { title: "Senior React Developer", company: "Acme" });

@@ -62,7 +62,7 @@
 - **Verified Scope & Deliverables:**
   - Delivered frontend implementation for the recruitment platform.
   - Re-architected SEO and metadata infrastructure on top of Gatsby static generation.
-  - Verified outcome: achieved approximately 50% increase in organic search traffic through improved indexability, page speed, and semantic structuring.
+  - Verified outcome: approximately 50% increase in organic search traffic in 3 months, through improved indexability, page speed, and semantic structuring.
 
 ### 4. pmicareers.pl
 - **Domain:** Corporate Careers & Talent Acquisition Portal
@@ -100,5 +100,5 @@ Source: https://www.mrudnev.com/case-studies, visible project cards inspected 20
 - **PRIMARY DOMAIN:** `REACT_FRONTEND` (or `FULLSTACK_TYPESCRIPT_NODE` when the vacancy is frontend-heavy React + Node/TypeScript).
 - **Headline Priority:** `Senior Frontend Developer | React | Next.js | TypeScript | Product UI`
 - **Summary:** "Senior Frontend Developer specializing in React, Next.js and TypeScript..."
-- **Project preferences:** ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de. Prefer 4–6; supplementary portfolio projects may be selected when more relevant. Keep at least 75% React-domain evidence. Do not add Shopify-specific or Magento/Hyvä projects unless the JD is explicitly relevant.
+- **Project preferences:** Default four, in order: copernicspace.com, ponadczasowi.pl, hrk.pl, carneoo.de. pmicareers.pl and learningspace.app stay in the whitelist but are not the default set. Keep at least 75% React-domain evidence. Do not add Shopify-specific or Magento/Hyvä projects unless the JD is explicitly relevant.
 - **Skills:** React, Next.js, TypeScript, JavaScript, HTML/CSS, SSR/ISR/SSG, REST, GraphQL, Core Web Vitals, accessibility. Do not prominently show Shopify or Magento if they are irrelevant.

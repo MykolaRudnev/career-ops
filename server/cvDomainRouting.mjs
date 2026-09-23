@@ -82,7 +82,7 @@ export const PROJECT_CATALOG = {
       name: "Glasy.pl",
       aliases: ["glasy.pl", "glasy"],
       tech: "Shopify, Liquid, JavaScript, CSS",
-      description: "Custom homepage elements, collection/PLP improvements, custom header and footer, and Shopify theme functionality for a live eyewear storefront."
+      description: "Custom Shopify theme built from scratch for a live eyewear store: homepage, collections, header/footer, and Admin-configurable sections."
     },
     {
       name: "Ascent",
@@ -94,13 +94,13 @@ export const PROJECT_CATALOG = {
       name: "Warmsome",
       aliases: ["warmsome"],
       tech: "Shopify, Liquid, Responsive UI",
-      description: "Custom Shopify storefront sections, responsive components, and theme development for a live home-goods store."
+      description: "Joined an existing Shopify build and completed about the final 30% through MVP: homepage, category pages, and product pages."
     },
     {
       name: "Pixel25",
       aliases: ["pixel25", "pixel 25"],
       tech: "Shopify, Liquid, Custom Sections",
-      description: "Custom Liquid sections and application-style frontend components for an automotive service storefront in development."
+      description: "Automotive garage SaaS storefront on a custom Shopify theme, in development, including application-style sections and AI-assisted garage creation."
     },
     {
       name: "Berg's",
@@ -132,7 +132,7 @@ export const PROJECT_CATALOG = {
       name: "hrk.pl",
       aliases: ["hrk.pl", "hrk"],
       tech: "Gatsby.js, React, TypeScript, GraphQL",
-      description: "Recruitment platform frontend with SEO architecture work and a verified ~50% increase in organic search traffic."
+      description: "Recruitment platform in Gatsby and TypeScript. SEO and frontend work increased organic traffic by approximately 50% in 3 months."
     },
     {
       name: "pmicareers.pl",
@@ -150,7 +150,7 @@ export const PROJECT_CATALOG = {
       name: "carneoo.de",
       aliases: ["carneoo.de", "carneoo"],
       tech: "React, Next.js",
-      description: "Features, bug fixes, custom components, and UX/stability work on an automotive marketplace."
+      description: "Joined a Next.js car-sales platform midway and worked on the vehicle configurator, new features, bug fixes, and image optimization."
     }
   ],
   magento: [
@@ -158,7 +158,7 @@ export const PROJECT_CATALOG = {
       name: "HUBER SE",
       aliases: ["huber se", "huber"],
       tech: "Magento 2, Hyvä Theme, Hyvä CMS, Alpine.js, Tailwind CSS",
-      description: "Lead frontend delivery on a Magento 2 / Hyvä storefront: PLP/PDP/Cart/Checkout/Account, multi-store CMS, performance, SEO, and accessibility."
+      description: "Lead frontend on the rebuild from Adobe Commerce headless to Magento Open Source with Hyvä Theme, Hyvä Checkout, and Hyvä CMS. Catalog pages reach Lighthouse 99–100."
     },
     {
       name: "Lufed IT",
@@ -204,9 +204,9 @@ export const PROJECT_CATALOG = {
     },
     {
       name: "British American Tobacco",
-      aliases: ["british american tobacco", "bat"],
+      aliases: ["british american tobacco", "bat", "myglo", "myglo.com"],
       tech: "Magento 2 Enterprise",
-      description: "Product pages, checkout flows, customer account areas, and multi-market delivery across 4 storefronts."
+      description: "Four BAT storefronts. On myglo (myglo.com/de/de), took part in a full redesign with the team, including frontend decisions on design, logic, and architecture. The other markets: support and fixes."
     },
     {
       name: "catering24.co.uk",
@@ -218,13 +218,13 @@ export const PROJECT_CATALOG = {
       name: "solar.com.pl",
       aliases: ["solar.com.pl", "solar.com"],
       tech: "Magento 2",
-      description: "Custom storefront with specialized catalog features and custom UI components."
+      description: "Full Magento redesign: new pages, including category pages and checkout, plus CMS handover and training for the client's editors."
     },
     {
-      name: "3mk.pl",
+      name: "3MK Protection",
       aliases: ["3mk protection", "3mk.pl", "3mk"],
       tech: "Magento 2",
-      description: "Storefront from scratch: homepage, category/PLP, cart, and custom UI focused on UX and conversion."
+      description: "Built the Magento storefront from scratch with the team: category pages, checkout, and other storefront pages, plus custom CMS page templates for the SEO team to reuse. Trained the client on the CMS."
     },
     {
       name: "ORBA",
@@ -421,27 +421,6 @@ function normalizeName(name) {
     .replace(/[^a-z0-9.]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function hashSeed(str) {
-  let h = 2166136261;
-  const s = String(str || "");
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function seededShuffle(items, seed) {
-  const out = [...items];
-  let h = hashSeed(seed);
-  for (let i = out.length - 1; i > 0; i--) {
-    h = (Math.imul(h, 1664525) + 1013904223) >>> 0;
-    const j = h % (i + 1);
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
 }
 
 function countHits(text, patterns) {
@@ -686,41 +665,34 @@ export function validateDomainConsistency({ primaryDomain, projects = [], jdText
   return { ok: reasons.length === 0, reasons, primaryDomain: primary, counts };
 }
 
+const PINNED_PROJECTS = {
+  SHOPIFY: ["Glasy.pl", "Pixel25", "Warmsome", "Berg's"],
+  MAGENTO_HYVA: ["HUBER SE", "3MK Protection", "British American Tobacco", "solar.com.pl"],
+  REACT_FRONTEND: ["copernicspace.com", "ponadczasowi.pl", "hrk.pl", "carneoo.de"],
+  FULLSTACK_TYPESCRIPT_NODE: ["copernicspace.com", "ponadczasowi.pl", "hrk.pl", "carneoo.de"]
+};
+
+function projectsByName(list, names) {
+  return names.map((name) => list.find((project) => project.name === name)).filter(Boolean);
+}
+
 export function selectProjectsForDomain(primaryDomain, { title = "", jd = "", company = "", count } = {}) {
   const primary = normalizePrimaryDomain(primaryDomain) || primaryDomain || "GENERAL_FRONTEND";
-  const seed = `${company}|${title}|${primary}`;
   const jdText = `${title}\n${jd}`;
   const wantsReactSupport = jdRequestsReact(jdText);
+  const reactSupport = PROJECT_CATALOG.react.find((project) => project.name === "ponadczasowi.pl");
 
   let selected = [];
-  if (primary === "SHOPIFY") {
-    const rest = seededShuffle(
-      PROJECT_CATALOG.shopify.filter((p) => p.name !== "Glasy.pl" && p.name !== "Diamandia"),
-      seed
-    );
-    selected = [PROJECT_CATALOG.shopify[0], ...rest.slice(0, 2)];
-    if (wantsReactSupport) {
-      selected.push(PROJECT_CATALOG.react[0]);
-    } else if (rest[2]) {
-      selected.push(rest[2]);
+  if (PINNED_PROJECTS[primary]) {
+    const pool = primary === "SHOPIFY" ? PROJECT_CATALOG.shopify
+      : primary === "MAGENTO_HYVA" ? PROJECT_CATALOG.magento
+      : PROJECT_CATALOG.react;
+    selected = projectsByName(pool, PINNED_PROJECTS[primary]);
+    if ((primary === "SHOPIFY" || primary === "MAGENTO_HYVA") && wantsReactSupport && reactSupport) {
+      selected = [...selected.slice(0, 3), reactSupport];
     }
-  } else if (primary === "MAGENTO_HYVA") {
-    const rest = seededShuffle(
-      PROJECT_CATALOG.magento.filter((p) => p.name !== "HUBER SE" && p.name !== "Lufed IT"),
-      seed
-    );
-    selected = [PROJECT_CATALOG.magento[0], PROJECT_CATALOG.magento[1], rest[0]].filter(Boolean);
-    if (wantsReactSupport) selected.push(PROJECT_CATALOG.react[0]);
-    else if (rest[1]) selected.push(rest[1]);
-  } else if (primary === "REACT_FRONTEND" || primary === "FULLSTACK_TYPESCRIPT_NODE") {
-    const react = seededShuffle(PROJECT_CATALOG.react, seed);
-    selected = react.slice(0, 3);
-    const ecommerceRelevant = /\be-?commerce\b|\bcheckout\b|\bstorefront\b/i.test(jdText);
-    if (ecommerceRelevant) selected.push(PROJECT_CATALOG.react.find((p) => p.name === "ponadczasowi.pl") || react[3]);
-    else if (react[3]) selected.push(react[3]);
   } else {
-    const pool = seededShuffle(domainProjectPool(primary), seed);
-    selected = pool.slice(0, Math.min(4, Math.max(2, count || 4)));
+    selected = domainProjectPool(primary).slice(0, Math.min(4, Math.max(2, count || 4)));
   }
 
   selected = selected.filter(Boolean).slice(0, 4);
