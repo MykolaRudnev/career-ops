@@ -8,7 +8,7 @@
 const ALLOWED_HOSTS = new Set(['justjoin.it']);
 const API_BASE = 'https://justjoin.it/api/candidate-api/offers';
 const JOB_BASE = 'https://justjoin.it/job-offer/';
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 1000;
 const MAX_PAGES = 50;
 
 function assertJustJoinUrl(url) {
@@ -119,6 +119,8 @@ export default {
       const parsed = parseJustJoinResponse(json);
       jobs.push(...parsed);
 
+      const totalItems = Number(json?.meta?.totalItems);
+      if (Number.isFinite(totalItems) && from + parsed.length >= totalItems) break;
       const next = json?.meta?.next?.cursor;
       if (next == null || parsed.length === 0) break;
       from = Number(next);

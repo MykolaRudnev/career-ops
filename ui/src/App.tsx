@@ -62,6 +62,35 @@ import {
 } from "lucide-react";
 
 type AppliedSortColumn = "company" | "title" | "location" | "date" | "status" | "bid" | "source";
+type JobStatusAction = "reviewed" | "applied" | "skipped";
+
+const inflightStatus = new Map<string, JobStatusAction>();
+
+function applyInflight(pending: PipelineJob[], processed: PipelineJob[]) {
+  if (inflightStatus.size === 0) return { pending, processed };
+  const nextPending = pending.filter((job) => !inflightStatus.has(job.url));
+  const nextProcessed = processed.filter((job) => !inflightStatus.has(job.url));
+  for (const [url, status] of inflightStatus) {
+    const base = pending.find((job) => job.url === url) || processed.find((job) => job.url === url);
+    if (base) nextProcessed.unshift({ ...base, status });
+  }
+  return { pending: nextPending, processed: nextProcessed };
+}
+
+async function postJobStatus(url: string, status: JobStatusAction) {
+  let last = "Status update failed";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const ok = await updateJobStatus(url, status);
+      if (ok) return;
+      last = "Status update was not saved";
+    } catch (error: any) {
+      last = error?.message || last;
+    }
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+  }
+  throw new Error(last);
+}
 
 export function App() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -125,8 +154,9 @@ export function App() {
         fetchOperations()
       ]);
       setStatus(sData);
-      setPendingJobs(pData.pending);
-      setProcessedJobs(pData.processed);
+      const pipeline = applyInflight(pData.pending, pData.processed);
+      setPendingJobs(pipeline.pending);
+      setProcessedJobs(pipeline.processed);
       setTailoredCvs(cvData);
       setActivity(aData);
       setAiProviders(aiData.providers);
@@ -394,17 +424,25 @@ export function App() {
     }
   };
 
-  const handleStatusChange = async (url: string, newStatus: "reviewed" | "applied" | "skipped") => {
-    try {
-      await updateJobStatus(url, newStatus);
-      showNotification(`Job status updated to ${newStatus}`);
-      await loadData();
-      if (selectedJob && selectedJob.url === url) {
-        setSelectedJob({ ...selectedJob, status: newStatus });
+  const handleStatusChange = (url: string, newStatus: "reviewed" | "applied" | "skipped") => {
+    if (inflightStatus.has(url)) return;
+    inflightStatus.set(url, newStatus);
+    // Close before the request. A late setSelectedJob from this handler used to
+    // reopen the old card over whichever job was opened next.
+    setSelectedJob((current) => (current?.url === url ? null : current));
+    const pipeline = applyInflight(pendingJobs, processedJobs);
+    setPendingJobs(pipeline.pending);
+    setProcessedJobs(pipeline.processed);
+    void (async () => {
+      try {
+        await postJobStatus(url, newStatus);
+      } catch (e: any) {
+        showNotification(`Status update error: ${e.message}`);
+      } finally {
+        inflightStatus.delete(url);
+        await loadData();
       }
-    } catch (e: any) {
-      showNotification(`Status update error: ${e.message}`);
-    }
+    })();
   };
 
   const handleOpen = async (type: any, payload?: string) => {

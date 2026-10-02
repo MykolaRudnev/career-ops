@@ -44,7 +44,7 @@ try {
       { slug: '', title: 'Missing Slug', companyName: 'Broken' },
       null,
     ],
-    meta: { next: { cursor: null } },
+    meta: { totalItems: 1, next: { cursor: 1000 } },
   };
 
   const parsed = parseJustJoinResponse(fakeResponse);
@@ -66,7 +66,7 @@ try {
   let capturedUrl = '';
   let capturedOpts = null;
   const fetched = await jj.fetch(
-    { name: 'JustJoin', careers_url: 'https://justjoin.it/job-offers/all-locations', max_pages: 1 },
+    { name: 'JustJoin', careers_url: 'https://justjoin.it/job-offers/all-locations', max_pages: 2 },
     {
       transport: 'http',
       fetchJson: async (url, opts) => {
@@ -86,7 +86,13 @@ try {
   if (capturedOpts && capturedOpts.redirect === 'error') pass('justjoin.fetch() passes redirect:"error"');
   else fail(`justjoin.fetch() should pass redirect:"error", got ${JSON.stringify(capturedOpts)}`);
 
+  if (fetched.length === 1) pass('justjoin.fetch() stops at meta.totalItems');
+  else fail(`justjoin.fetch() ignored meta.totalItems: ${fetched.length} rows`);
+
   const apiUrl = new URL(capturedUrl);
+  if (apiUrl.searchParams.get('itemsCount') === '1000') pass('justjoin.fetch() requests enough rows to cover the full feed');
+  else fail(`justjoin.fetch() page size is too small: ${capturedUrl}`);
+
   if (apiUrl.searchParams.get('sortBy') === 'publishedAt' && apiUrl.searchParams.get('orderBy') === 'descending') {
     pass('justjoin.fetch() sorts newest-first by publishedAt');
   } else {

@@ -468,12 +468,14 @@ function buildEducation(entries, partial) {
     const blockValues = new Map([
       ['ORG_BLOCK',  { value: escapeHtml(e.org || ''),         present: Boolean(e.org) }],
       ['DESC_BLOCK', { value: escapeHtml(e.description || ''), present: Boolean(e.description) }],
+      ['LOCATION_BLOCK', { value: escapeHtml(e.location || ''), present: Boolean(e.location) }],
     ]);
     return fillEntry(entryTemplate, blocks, {
       TITLE: escapeHtml(e.title || ''),
       ORG:   escapeHtml(e.org || ''),
       YEAR:  escapeHtml(e.year || ''),
       DESC:  escapeHtml(e.description || ''),
+      LOCATION: escapeHtml(e.location || ''),
     }, blockValues);
   }).join('\n  ');
 }

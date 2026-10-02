@@ -381,8 +381,9 @@ export async function updateJobStatus(url: string, status: "reviewed" | "applied
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, status })
   });
-  const data = await res.json();
-  return data.success;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to update job status");
+  return data.success === true;
 }
 
 export async function updateJobBid(url: string, bid: string, jobId?: string): Promise<boolean> {
