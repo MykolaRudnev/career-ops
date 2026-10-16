@@ -18,29 +18,48 @@ import { generateCoverLetter as generateCoverArtifact } from "./coverLetter.ts";
 import { artifactDirectories } from "./jobArtifacts.ts";
 
 const JOB_MATCH_VERSION = 6;
+let localJdIndex = {
+  outputStamp: -1,
+  expiresAt: 0,
+  byUrl: new Map<string, string>(),
+  byIdentity: new Map<string, string>()
+};
 
-function findLocalJobDescription(job: { url?: string; company?: string; title?: string; description?: string }, strictIdentity = false): string {
-  if (String(job.description || "").trim().length >= 40) return String(job.description).trim();
+function getLocalJdIndex() {
   const outputsDir = path.join(WORKSPACE_ROOT, "outputs");
-  if (!fs.existsSync(outputsDir)) return "";
-  const needleUrl = String(job.url || "").trim();
-  const needleCompany = String(job.company || "").toLowerCase();
-  const needleTitle = String(job.title || "").toLowerCase();
+  let outputStamp = -1;
+  try { outputStamp = fs.statSync(outputsDir).mtimeMs; } catch { /* no local artifacts */ }
+  if (localJdIndex.outputStamp === outputStamp && Date.now() < localJdIndex.expiresAt) return localJdIndex;
+
+  const byUrl = new Map<string, string>();
+  const byIdentity = new Map<string, string>();
   for (const dir of artifactDirectories().sort((a, b) => b.split(path.sep).length - a.split(path.sep).length)) {
     const jdPath = path.join(dir, "job-description.md");
     if (!fs.existsSync(jdPath)) continue;
     const metaPath = path.join(dir, fs.existsSync(path.join(dir, "metadata.json")) ? "metadata.json" : "artifact-job.json");
-    let matched = false;
-    if (fs.existsSync(metaPath)) {
-      try {
-        const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
-        matched = Boolean(needleUrl && meta.url === needleUrl)
-          || (!strictIdentity && String(meta.company || "").toLowerCase() === needleCompany && String(meta.role || meta.title || "").toLowerCase() === needleTitle);
-      } catch {
-        matched = false;
-      }
-    }
-    if (!matched) continue;
+    if (!fs.existsSync(metaPath)) continue;
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+      const url = String(meta.url || "").trim();
+      const identity = `${String(meta.company || "").toLowerCase()}\0${String(meta.role || meta.title || "").toLowerCase()}`;
+      if (url && !byUrl.has(url)) byUrl.set(url, jdPath);
+      if (identity !== "\0" && !byIdentity.has(identity)) byIdentity.set(identity, jdPath);
+    } catch { /* malformed optional artifact: keep searching */ }
+  }
+  // shortcut: metadata edits can take up to 1s to appear; add write-side invalidation if immediate refresh becomes necessary.
+  localJdIndex = { outputStamp, expiresAt: Date.now() + 1000, byUrl, byIdentity };
+  return localJdIndex;
+}
+
+function findLocalJobDescription(job: { url?: string; company?: string; title?: string; description?: string }, strictIdentity = false): string {
+  if (String(job.description || "").trim().length >= 40) return String(job.description).trim();
+  const needleUrl = String(job.url || "").trim();
+  const needleCompany = String(job.company || "").toLowerCase();
+  const needleTitle = String(job.title || "").toLowerCase();
+  const index = getLocalJdIndex();
+  const jdPath = index.byUrl.get(needleUrl)
+    || (!strictIdentity ? index.byIdentity.get(`${needleCompany}\0${needleTitle}`) : undefined);
+  if (jdPath && fs.existsSync(jdPath)) {
     const text = fs.readFileSync(jdPath, "utf8").trim();
     if (text.length >= 80) return text.split(/\b(similar offers|recommended by just join|oferty podobne)\b/i)[0].trim();
   }
@@ -230,7 +249,7 @@ class CareerOpsManager {
     return result;
   }
 
-  public startTailoredCv(job: PipelineJob, options: { providerId?: string; model?: string } = {}): OperationRecord {
+  public startTailoredCv(job: PipelineJob, options: { providerId?: string; model?: string; adjacentMode?: string } = {}): OperationRecord {
     if (operationManager.list().some(op => op.type === "APPLICATION" && ["PENDING", "RUNNING", "CANCELLING"].includes(op.status))) throw new Error("Application queue is active; cancel it before starting another generation");
     if (this.currentOp) throw new Error(`Another operation is currently running: ${this.currentOp.name}`);
     const operation = operationManager.create(job.id);
@@ -327,7 +346,7 @@ class CareerOpsManager {
   /**
    * Generate tailored CV using Career-Ops standard pipeline
    */
-  public async generateTailoredCv(job: PipelineJob, options?: { providerId?: string; model?: string; fullJd?: string }): Promise<{
+  public async generateTailoredCv(job: PipelineJob, options?: { providerId?: string; model?: string; fullJd?: string; adjacentMode?: string }): Promise<{
     success: boolean;
     htmlPath: string;
     pdfPath: string;
@@ -346,12 +365,12 @@ class CareerOpsManager {
   }>;
   public async generateTailoredCv(
     job: PipelineJob,
-    options: { providerId?: string; model?: string; fullJd?: string },
+    options: { providerId?: string; model?: string; fullJd?: string; adjacentMode?: string },
     operation: { operationId: string; signal: AbortSignal; updateStage: (stage: string) => void }
   ): Promise<any>;
   public async generateTailoredCv(
     job: PipelineJob,
-    options: { providerId?: string; model?: string; fullJd?: string } = {},
+    options: { providerId?: string; model?: string; fullJd?: string; adjacentMode?: string } = {},
     operation?: { operationId: string; signal: AbortSignal; updateStage: (stage: string) => void }
   ): Promise<any> {
     if (!operation && this.currentOp) throw new Error(`Another operation is currently running: ${this.currentOp.name}`);
@@ -409,7 +428,7 @@ class CareerOpsManager {
           stage("[4/5] Fact Validation");
           renderResult = await renderAndValidateTailoredCv(job, fullJd, aiResult, (progress) => {
             stage(progress);
-          }, { operationId: operation?.operationId, signal: operation?.signal });
+          }, { operationId: operation?.operationId, signal: operation?.signal, adjacentMode: options.adjacentMode });
         } catch (renderErr: any) {
           if (renderErr instanceof OperationCancelledError || renderErr instanceof ProcessTimeoutError || operation?.signal.aborted) throw renderErr;
           if (renderErr instanceof DomainValidationError || renderErr?.name === "DomainValidationError") {
@@ -426,7 +445,7 @@ class CareerOpsManager {
         const simple = buildSimpleTailorResult(job);
         renderResult = await renderAndValidateTailoredCv(job, fullJd, simple, (progress) => {
           stage(progress);
-        }, { operationId: operation?.operationId, signal: operation?.signal });
+        }, { operationId: operation?.operationId, signal: operation?.signal, adjacentMode: options.adjacentMode });
       }
 
       const tailoredWithAi = !fallbackReason;

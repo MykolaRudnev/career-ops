@@ -11,6 +11,7 @@ These files contain your personal data, customizations, and work product. Update
 | `cv.md` | Your CV in markdown |
 | `config/profile.yml` | Your identity, targets, comp range |
 | `config/cv-facts.json` | Your CV fact-check allowlist and forbidden phrases |
+| `config/adjacent-skills.json` | Editable allow/deny buckets for bounded JD-adjacent CV skills |
 | `config/benchmarks.yml` | Your market calibration benchmark overrides (optional; copy `templates/benchmarks.yml` here and edit — read by `funnel-velocity.mjs`) |
 | `config/local-paths.txt` | Files *this clone* owns that upstream does not ship — one repo-relative path per line (optional; copy `config/local-paths.example.txt` here and edit). See [Fork-local paths](#fork-local-paths) below |
 | `modes/_profile.md` | Your archetypes, narrative, negotiation scripts |
@@ -192,5 +193,4 @@ When resolved, all User Layer files/directories (e.g. `cv.md`, `config/profile.y
 - **`CAREER_OPS_TRACKER`** can be set to override the applications tracker file path directly (relative paths are resolved relative to the repository root).
 - **Read Resolution:** If no tracker override is set, reading resolves to `{DATA_ROOT}/data/applications.md` if it exists; otherwise falls back to `{DATA_ROOT}/applications.md`.
 - **Write Resolution:** All writes (including merge operations and first-run creation) target the canonical location `{DATA_ROOT}/data/applications.md`.
-
 

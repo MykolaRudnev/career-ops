@@ -25,6 +25,14 @@ Run `npm run jd:similarity -- {bundle-root}/jd/current.md {bundle-root}/jd/previ
    - `empty-jd` — the JD file has no content, so there was nothing to read. Check the file was written correctly before continuing
 
    > ⚠️ **Skill-gap check inconclusive:** [Render in {language.output}: state that the automated skill-gap check returned no classified skills for this JD and so cannot be read as "no gaps"; name which of the three shapes occurred from the reason code (requirements section never found, or found but no candidates extracted, or the JD file was empty); for an empty file, say the JD may not have been saved correctly and should be checked; otherwise say that you will read the JD directly to identify required skills before drafting. Keep the CLI's own English diagnostic out of the user-facing message.]
+
+4b. Resolve adjacent-skill mode from the request or `CAREER_OPS_ADJACENT` (`normal` by default), then run `node server/adjacentSkills.mjs jds/{slug}.md --mode={off|conservative|normal}`. When mode is off, keep the old strict behavior. Otherwise, ONLY `addTooling` and `addStack` are allowed exceptions:
+   - tooling: Technical Skills only, inside an existing group or `Tooling`; at most one existing, genuinely related experience bullet may be rephrased to mention one planned tooling skill; never add a bullet
+   - stack: only a separate `Familiar with` Technical Skills line
+   - never place a planned skill in the summary, projects, years, or metrics
+   - unknown and `skippedForeign` skills are never added
+   - pass each planned skill to both fact gates as a per-run `--allow-fact`; never edit `config/cv-facts.json`
+   - save `adjacent-skills.json` beside `tailoring-diff.json` with score, actually added skills, skipped lists, and prep
 5. Use `language.output` for the CV language. The JD language and `language.modes_dir` supply market vocabulary and evaluation context, but never override the configured output language.
 6. Detect company location → paper format:
    - US/Canada → `letter`
@@ -35,8 +43,8 @@ Run `npm run jd:similarity -- {bundle-root}/jd/current.md {bundle-root}/jd/previ
 10. Rewrite Professional Summary by injecting JD keywords + exit narrative bridge ("Built and sold a business. Now applying systems thinking to [JD domain].")
 11. Select top 3-4 most relevant projects for the job. If `cv.md` carries an Awards / Honors section, populate `awards[]` with the entries that support this role — for an early-career candidate a contest medal or dean's list often outranks a thin project. Omit the key when there is nothing to list and the section disappears entirely; never invent an award to fill it
 12. Reorder experience bullets by JD relevance and by the risk map: strongest matching evidence first
-13. Build competency grid from JD requirements (6-8 keyword phrases), prioritizing `existing` and `supportedByResume` skills from Step 4 — never a `gap` skill
-14. Inject keywords naturally into existing achievements (NEVER invent)
+13. Build competency grid from JD requirements (6-8 keyword phrases), prioritizing `existing` and `supportedByResume` skills from Step 4. A `gap` skill is allowed only when Step 4b explicitly planned it, and only in Step 4b's placement.
+14. Inject keywords naturally into existing achievements (NEVER invent beyond Step 4b's bounded adjacent-tooling exception)
 15. Apply the six-second clarity gate from `modes/heuristics/recruiter-side.md`: top third must make target role, strongest fit, and proof obvious
 16. Read `name` from `config/profile.yml` → normalize to kebab-case lowercase (e.g. "John Doe" → "john-doe") → `{candidate}`
 17. Build the render payload (see the **JSON Input Schema** below) from the tailored content — emit compact structured JSON, **not** full HTML markup — and write it to `/tmp/cv-{candidate}-{company}.json`
@@ -109,7 +117,7 @@ Examples of legitimate reformulation:
 - JD says "MLOps" and CV says "observability, evals, error handling" → change to "MLOps and observability: evals, error handling, cost monitoring"
 - JD says "stakeholder management" and CV says "collaborated with team" → change to "stakeholder management across engineering, operations, and business"
 
-**NEVER add skills that the candidate does not have. Only reword real experience using the exact JD vocabulary.**
+**NEVER add skills that the candidate does not have, except the exact skills planned by Step 4b with its placement limits. Only reword real experience using the exact JD vocabulary.**
 
 ## Template HTML
 

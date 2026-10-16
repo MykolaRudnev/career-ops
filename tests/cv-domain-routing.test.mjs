@@ -85,7 +85,7 @@ test("default offer tracks use the pinned four projects in order", () => {
     {
       title: "Senior Magento 2 / Hyvä Frontend Developer",
       jd: "Hyvä Theme, Hyvä Checkout, PLP, PDP, and checkout on Magento Open Source.",
-      expect: ["HUBER SE", "3MK Protection", "British American Tobacco", "solar.com.pl"]
+      expect: ["shop.huber-se.com", "3mk.pl", "British American Tobacco", "solar.com.pl"]
     },
     {
       title: "Senior React / Next.js Developer",
@@ -128,7 +128,7 @@ test("Magento CV with React-only majority fails; React CV with Shopify majority 
   assert.equal(
     validateDomainConsistency({
       primaryDomain: "MAGENTO_HYVA",
-      projects: [{ name: "copernicspace.com" }, { name: "hrk.pl" }, { name: "pmicareers.pl" }, { name: "HUBER SE" }]
+      projects: [{ name: "copernicspace.com" }, { name: "hrk.pl" }, { name: "pmicareers.pl" }, { name: "shop.huber-se.com" }]
     }).ok,
     false
   );

@@ -5,6 +5,7 @@ import { DiscoveryHealth } from "./DiscoveryHealth";
 import {
   fetchStatus,
   fetchPipeline,
+  fetchMarketAnalytics,
   appliedJobsJson,
   fetchTailoredCvs,
   fetchActivity,
@@ -35,11 +36,15 @@ import {
   type AiProviderInfo,
   type AiProviderTestResult,
   type OperationRecord,
-  type CoverLetterArtifact
+  type CoverLetterArtifact,
+  type AnalyticsIndex,
+  type AdjacentMode
 } from "./api";
 import { ManualJobBoard } from "./ManualJobBoard";
 import { isPolandJob, loadMarketLane, matchesMarketLane, saveMarketLane, type MarketLane } from "./marketLane";
 import { CoverLetterModal } from "./CoverLetterModal";
+import { MarketAnalytics } from "./MarketAnalytics";
+import { filterMarketJobs, pipelineDrilldown } from "./marketFilters";
 import {
   Search,
   FileText,
@@ -96,16 +101,18 @@ export function App() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [pendingJobs, setPendingJobs] = useState<PipelineJob[]>([]);
   const [processedJobs, setProcessedJobs] = useState<PipelineJob[]>([]);
+  const [analyticsIndex, setAnalyticsIndex] = useState<AnalyticsIndex | null>(null);
   const [tailoredCvs, setTailoredCvs] = useState<TailoredCvFile[]>([]);
   const [activity, setActivity] = useState<any>(null);
   const [aiProviders, setAiProviders] = useState<AiProviderInfo[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("codex");
   const [selectedModel, setSelectedModel] = useState("default");
+  const [adjacentMode, setAdjacentMode] = useState<AdjacentMode>("normal");
   const [fallbackEnabled, setFallbackEnabled] = useState(false);
   const [isTestingProvider, setIsTestingProvider] = useState(false);
   const [providerTest, setProviderTest] = useState<AiProviderTestResult | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"pipeline" | "applied" | "cvs" | "settings">("pipeline");
+  const [activeTab, setActiveTab] = useState<"pipeline" | "analytics" | "applied" | "cvs" | "settings">("pipeline");
   const [pipelineView, setPipelineView] = useState<"pending" | "evaluated" | "manual">("pending");
   const [appliedStatus, setAppliedStatus] = useState<"ALL" | "No Response" | "Rejected" | "Interview" | "Offer">("ALL");
   const [appliedSortColumn, setAppliedSortColumn] = useState<AppliedSortColumn>("date");
@@ -120,6 +127,7 @@ export function App() {
   const [modelFilter, setModelFilter] = useState<"ALL" | "Remote" | "Hybrid" | "Office">("ALL");
   const [minimumScore, setMinimumScore] = useState(0);
   const [countryFilter, setCountryFilter] = useState("ALL");
+  const [technologyFilter, setTechnologyFilter] = useState("");
   const [marketLane, setMarketLane] = useState<MarketLane>(() => loadMarketLane());
   const [matchCategory, setMatchCategory] = useState<
     "ALL" | "BEST_MATCH" | "REACT_NEXT" | "SHOPIFY" | "MAGENTO" | "NODE" | "SENIOR_LEAD"
@@ -206,6 +214,11 @@ export function App() {
     }, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "analytics" || analyticsIndex) return;
+    fetchMarketAnalytics().then(setAnalyticsIndex).catch((error) => console.error("Error loading market analytics:", error));
+  }, [activeTab, analyticsIndex]);
 
   const showNotification = (msg: string) => {
     setActionNotice(msg);
@@ -335,7 +348,7 @@ export function App() {
     setIsTailoring(job.id);
     showNotification(`Starting AI tailoring for ${job.company} (${selectedProvider?.name || selectedProviderId})...`);
     try {
-      const operation = await generateTailoredCv(job, selectedProviderId, selectedModel);
+      const operation = await generateTailoredCv(job, selectedProviderId, selectedModel, adjacentMode);
       setOperations((current) => [operation, ...current.filter((item) => item.operationId !== operation.operationId)]);
       showNotification(`Tailored CV generation started (${operation.currentStage}).`);
     } catch (e: any) {
@@ -463,72 +476,48 @@ export function App() {
   const selectedCoverOperation = selectedJob && activeCoverOperation?.jobId === selectedJob.id ? activeCoverOperation : undefined;
   const latestOperation = operations[0];
 
-  const bestMatchCount = currentList.filter(isBestMatchOffer).length;
-  const reactNextCount = currentList.filter((j) => {
-    const t = j.title.replace(/react[\s-]?native/gi, " ").toLowerCase();
-    return /\breact\b/.test(t) || t.includes("next");
-  }).length;
-  const shopifyCount = currentList.filter((j) => {
-    const t = (j.title + " " + (j.extra || "")).toLowerCase();
-    return t.includes("shopify");
-  }).length;
-  const magentoCount = currentList.filter((j) => {
-    const t = (j.title + " " + (j.extra || "")).toLowerCase();
-    return t.includes("magento") || t.includes("hyva") || t.includes("hyvä") || t.includes("adobe commerce");
-  }).length;
-  const nodeCount = currentList.filter((j) => {
-    const t = (j.title + " " + (j.extra || "")).toLowerCase();
-    return t.includes("node") || t.includes("nodejs");
-  }).length;
-  const seniorLeadCount = currentList.filter((j) => {
-    const t = j.title.toLowerCase();
-    return t.includes("senior") || t.includes("lead") || t.includes("principal") || t.includes("staff");
-  }).length;
+  const categoryMatches = (job: PipelineJob, category: typeof matchCategory) => {
+    const technologies = job.technologies || [];
+    const text = `${job.title} ${job.extra || ""}`.toLowerCase();
+    if (category === "BEST_MATCH") return isBestMatchOffer(job);
+    if (category === "REACT_NEXT") return !/react[\s-]?native/i.test(job.title) && (technologies.includes("React") || technologies.includes("Next.js") || /\breact\b|next\.?js/.test(text));
+    if (category === "SHOPIFY") return technologies.includes("Shopify") || text.includes("shopify");
+    if (category === "MAGENTO") return technologies.some(technology => ["Magento", "Adobe Commerce", "Hyvä"].includes(technology)) || /magento|hyva|hyvä|adobe commerce/.test(text);
+    if (category === "NODE") return technologies.includes("Node.js") || /\bnode\.?js\b/.test(text);
+    if (category === "SENIOR_LEAD") return ["Senior", "Lead"].includes(job.seniority || "") || /\b(senior|lead|principal|staff)\b/.test(job.title.toLowerCase());
+    return true;
+  };
 
-  const countryCounts = currentList.reduce((counts, job) => {
+  const pipelineJobsBeforeCategory = filterMarketJobs(
+    currentList.filter(job => matchesMarketLane(job, marketLane)),
+    { country: countryFilter, workModel: modelFilter, minimumScore, technology: technologyFilter, search: searchQuery }
+  );
+  const bestMatchCount = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, "BEST_MATCH")).length;
+  const reactNextCount = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, "REACT_NEXT")).length;
+  const shopifyCount = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, "SHOPIFY")).length;
+  const magentoCount = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, "MAGENTO")).length;
+  const nodeCount = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, "NODE")).length;
+  const seniorLeadCount = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, "SENIOR_LEAD")).length;
+
+  const countryFacetJobs = filterMarketJobs(currentList.filter(job => matchesMarketLane(job, marketLane)), {
+    workModel: modelFilter, minimumScore, technology: technologyFilter, search: searchQuery
+  });
+  const countryCounts = countryFacetJobs.reduce((counts, job) => {
     for (const country of job.countries || ["Unknown"]) counts.set(country, (counts.get(country) || 0) + 1);
     return counts;
   }, new Map<string, number>());
   const countryOptions = [...countryCounts.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const polandCount = currentList.filter(isPolandJob).length;
-  const bulkLaneCount = currentList.length - polandCount;
+  const marketFacetJobs = filterMarketJobs(currentList, { country: countryFilter, workModel: modelFilter, minimumScore, technology: technologyFilter, search: searchQuery });
+  const polandCount = marketFacetJobs.filter(isPolandJob).length;
+  const bulkLaneCount = marketFacetJobs.length - polandCount;
+  const technologyOptions = [...new Set(currentList.flatMap(job => job.technologies || []))].sort();
 
-  const filteredJobs = currentList.filter((job) => {
-    const q = searchQuery.toLowerCase();
-    const matchSearch =
-      job.title.toLowerCase().includes(q) ||
-      job.company.toLowerCase().includes(q) ||
-      job.location.toLowerCase().includes(q);
-    const matchModel = modelFilter === "ALL" || job.workModel === modelFilter;
-    const matchCountry = countryFilter === "ALL" || (job.countries || ["Unknown"]).includes(countryFilter);
-    const matchLane = matchesMarketLane(job, marketLane);
-
-    let matchCat = true;
-    if (matchCategory === "BEST_MATCH") {
-      matchCat = isBestMatchOffer(job);
-    } else if (matchCategory === "REACT_NEXT") {
-      const t = job.title.replace(/react[\s-]?native/gi, " ").toLowerCase();
-      matchCat = /\breact\b/.test(t) || t.includes("next");
-    } else if (matchCategory === "SHOPIFY") {
-      const t = (job.title + " " + (job.extra || "")).toLowerCase();
-      matchCat = t.includes("shopify");
-    } else if (matchCategory === "MAGENTO") {
-      const t = (job.title + " " + (job.extra || "")).toLowerCase();
-      matchCat = t.includes("magento") || t.includes("hyva") || t.includes("hyvä") || t.includes("adobe commerce");
-    } else if (matchCategory === "NODE") {
-      const t = (job.title + " " + (job.extra || "")).toLowerCase();
-      matchCat = t.includes("node") || t.includes("nodejs");
-    } else if (matchCategory === "SENIOR_LEAD") {
-      const t = job.title.toLowerCase();
-      matchCat = t.includes("senior") || t.includes("lead") || t.includes("principal") || t.includes("staff");
-    }
-
-    return matchSearch && matchModel && matchCountry && matchLane && matchCat && (job.fitScore || 0) >= minimumScore;
-  }).sort((a, b) => (b.compatibilityPercent || 0) - (a.compatibilityPercent || 0));
+  const filteredJobs = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, matchCategory))
+    .sort((a, b) => (b.compatibilityPercent || 0) - (a.compatibilityPercent || 0));
 
   const visibleJobs = filteredJobs.slice(0, 100);
   const automation = useApplicationAutomation({
-    busy: Boolean(activeOperation), providerId: selectedProviderId, model: selectedModel,
+    busy: Boolean(activeOperation), providerId: selectedProviderId, model: selectedModel, adjacentMode,
     onOperation: (operation) => setOperations(current => [operation, ...current]),
     cancel: (id) => { void handleCancelOperation(id); }, notify: showNotification
   });
@@ -672,10 +661,24 @@ export function App() {
       </header>
 
       <nav className="top-nav" aria-label="Dashboard sections">
-        {([['pipeline', 'Pipeline'], ['applied', 'Applied'], ['cvs', 'CVs'], ['settings', 'Settings']] as const).map(([key, label]) => (
+        {([['pipeline', 'Pipeline'], ['analytics', 'Market Analytics'], ['applied', 'Applied'], ['cvs', 'CVs'], ['settings', 'Settings']] as const).map(([key, label]) => (
           <button key={key} className={`top-nav-btn ${activeTab === key ? "active" : ""}`} onClick={() => setActiveTab(key)}>{label}{key === "applied" ? ` (${processedJobs.length})` : ""}</button>
         ))}
       </nav>
+
+      {activeTab === "analytics" && !analyticsIndex && <section className="market-analytics">Loading market analytics…</section>}
+      {activeTab === "analytics" && analyticsIndex && <MarketAnalytics index={analyticsIndex} pipelineJobs={[...pendingJobs, ...processedJobs.filter(job => !["skipped", "expired"].includes(job.status))]} onOpenJob={handleSelectJob} renderApply={(job) => automation.button(job)} onOpenPipeline={(technology, filters) => {
+        const drilldown = pipelineDrilldown(technology, filters);
+        setTechnologyFilter(drilldown.technology);
+        setCountryFilter(drilldown.country);
+        setModelFilter(drilldown.workModel as typeof modelFilter);
+        setMinimumScore(drilldown.minimumScore);
+        setMarketLane("ALL");
+        saveMarketLane("ALL");
+        setMatchCategory("ALL");
+        setPipelineView("pending");
+        setActiveTab("pipeline");
+      }} />}
 
       {activeTab === "settings" && <DiscoveryHealth />}
       {activeTab === "settings" && <section className="ai-provider-panel" aria-label="AI provider settings">
@@ -711,6 +714,15 @@ export function App() {
               {(selectedProvider?.models.length ? selectedProvider.models : [{ id: selectedModel, name: selectedModel }]).map((model) => (
                 <option key={model.id} value={model.id}>{model.name}</option>
               ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Adjacent skills</span>
+            <select value={adjacentMode} onChange={(event) => setAdjacentMode(event.target.value as AdjacentMode)} disabled={isTailoring !== null}>
+              <option value="normal">Normal</option>
+              <option value="conservative">Conservative</option>
+              <option value="off">Off</option>
             </select>
           </label>
 
@@ -978,7 +990,7 @@ export function App() {
                 className={`btn btn-sm ${matchCategory === "ALL" ? "btn-secondary" : "btn-outline"}`}
                 onClick={() => setMatchCategory("ALL")}
               >
-                All ({currentList.length})
+                All ({pipelineJobsBeforeCategory.length})
               </button>
               <button
                 className={`btn btn-sm ${matchCategory === "BEST_MATCH" ? "btn-best-match active" : "btn-best-match"}`}
@@ -1027,7 +1039,7 @@ export function App() {
               {([
                 ["BULK", `US / Intl (${bulkLaneCount})`],
                 ["POLAND", `Poland · manual (${polandCount})`],
-                ["ALL", `All (${currentList.length})`],
+                ["ALL", `All (${marketFacetJobs.length})`],
               ] as const).map(([lane, label]) => (
                 <button
                   key={lane}
@@ -1045,6 +1057,13 @@ export function App() {
                   {countryOptions.map(([country, count]) => (
                     <option key={country} value={country}>{country} ({count})</option>
                   ))}
+                </select>
+              </label>
+              <label className="country-filter-label">
+                Technology:
+                <select className="country-filter" value={technologyFilter} onChange={(event) => setTechnologyFilter(event.target.value)}>
+                  <option value="">All technologies</option>
+                  {technologyOptions.map(technology => <option key={technology} value={technology}>{technology}</option>)}
                 </select>
               </label>
               <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Model:</span>
@@ -1065,6 +1084,7 @@ export function App() {
           <ManualJobBoard
             providerId={selectedProviderId}
             model={selectedModel}
+            adjacentMode={adjacentMode}
             providerName={selectedProvider?.name || selectedProviderId}
             disabled={Boolean(activeOperation)}
             notify={showNotification}
@@ -1231,7 +1251,7 @@ export function App() {
                         <div className="row-actions">
                           <div className="row-actions-line">
                             {automation.button(job)}
-                            {job.url.startsWith("http") && <button className="btn btn-outline btn-sm" title="Open external job URL" onClick={() => handleOpen("url", job.url)}><ExternalLink size={12} /></button>}
+                            {job.url.startsWith("http") && <a className="btn btn-outline btn-sm" title="Open external job URL" href={job.url} target="_blank" rel="noreferrer"><ExternalLink size={12} /></a>}
                             <button
                               className="btn btn-eval btn-sm"
                               title="Run LLM evaluation"
@@ -1705,12 +1725,14 @@ export function App() {
                     🔍 View Tailoring Changes
                   </button>
                 )}
-                {selectedJob.url.startsWith("http") && <button
+                {selectedJob.url.startsWith("http") && <a
                   className="btn btn-secondary"
-                  onClick={() => handleOpen("url", selectedJob.url)}
+                  href={selectedJob.url}
+                  target="_blank"
+                  rel="noreferrer"
                 >
                   <ExternalLink size={14} /> Open Original Job
-                </button>}
+                </a>}
               </div>
 
               <div className="job-status-actions">
@@ -1798,6 +1820,7 @@ export function App() {
                 <div><strong>Provider:</strong> {viewingDiff.aiProvider}</div>
                 <div><strong>Fact Check:</strong> <span style={{ color: "var(--text-main)" }}>{viewingDiff.factValidation}</span></div>
                 <div><strong>Page Budget:</strong> {viewingDiff.pages} pages</div>
+                {viewingDiff.adjacentSkills && <div><strong>JD skill match:</strong> {Math.round(viewingDiff.adjacentSkills.score * 100)}%</div>}
                 {(viewingDiff.primaryDomain || viewingDiff.tailoringDiff?.primary_domain) && (
                   <div>
                     <strong>Primary domain:</strong>{" "}
@@ -1807,6 +1830,15 @@ export function App() {
                   </div>
                 )}
               </div>
+
+              {viewingDiff.adjacentSkills?.added?.length ? (
+                <div style={{ background: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.25)", padding: "14px 16px", borderRadius: "8px" }}>
+                  <h4 style={{ margin: "0 0 8px 0", color: "#86efac", fontSize: "0.95rem" }}>Adjacent skills added</h4>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                    {viewingDiff.adjacentSkills.added.map(item => <span key={item.skill} className="badge">{item.skill} · {item.placement}</span>)}
+                  </div>
+                </div>
+              ) : null}
 
               {/* Summary Focus */}
               <div style={{ background: "var(--bg-primary)", border: "1px solid var(--border)", padding: "14px 16px", borderRadius: "8px" }}>

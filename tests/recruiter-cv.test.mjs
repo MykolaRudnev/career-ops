@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
 import { canonicalTailoredExperience, loadParsedMasterCv, parseCvMarkdown, buildMasterCvPayload, buildSimpleTailorResult, canonicalProfessionalDevelopment } from '../server/cvFromMaster.mjs';
 import { domainProjectPool, portfolioProjectAdditions, validateDomainConsistency, isReactProject, isMagentoProject } from '../server/cvDomainRouting.mjs';
-import { buildTailoringPrompt, emphasizeSummaryKeywords, runAiTailoring } from '../server/aiTailor.ts';
+import { assertProjectNamesAreNotEmployers, buildTailoringPrompt, emphasizeSummaryKeywords, runAiTailoring } from '../server/aiTailor.ts';
 import { aiProviderRegistry } from '../server/ai/providerRegistry.ts';
 
 test('tailoring preserves master chronology and profile locations even with stale provider metadata', () => {
@@ -14,7 +14,7 @@ test('tailoring preserves master chronology and profile locations even with stal
   const modified = master.experience.map(entry => ({ ...entry, role: 'Invented title', dates: '2099', location: 'Invented city', bullets: ['Selected evidence'] })).reverse();
   const result = canonicalTailoredExperience(modified);
   assert.deepEqual(result.map(({ company, role, dates }) => ({ company, role, dates })), original.experience.map(({ company, role, dates }) => ({ company, role, dates })));
-  for (const entry of result) assert.equal(entry.location, profile.cv.experience_locations[entry.company]);
+  for (const entry of result) assert.equal(entry.location, profile.cv.experience_locations[entry.company] || original.experience.find(item => item.company === entry.company)?.location);
   assert.equal(buildMasterCvPayload().candidate.location, profile.candidate.public_location_header);
   assert.throws(() => canonicalTailoredExperience(modified.slice(1)), /every master employer/);
   assert.throws(() => canonicalTailoredExperience(modified.map(() => modified[0])), /Missing or duplicate/);
@@ -32,6 +32,13 @@ test('six projects pass without weakening primary domain isolation', () => {
     assert.equal(isReactProject(project.name), project.domain === 'REACT_FRONTEND');
     assert.equal(isMagentoProject(project.name), project.domain === 'MAGENTO_HYVA');
   }
+});
+
+test('employer names cannot be reused or dressed up as project titles', () => {
+  const experience = [{ company: 'HUBER SE' }, { company: 'Lufed IT' }];
+  assert.doesNotThrow(() => assertProjectNamesAreNotEmployers([{ name: 'shop.huber-se.com' }], experience));
+  assert.throws(() => assertProjectNamesAreNotEmployers([{ name: 'Lufed IT Product System' }], experience), /employer names cannot be project titles/);
+  assert.throws(() => assertProjectNamesAreNotEmployers([{ name: 'HUBER SE Enterprise Platform' }], experience), /employer names cannot be project titles/);
 });
 
 test('professional development preserves every factual entry in stable newest-first order', () => {
@@ -77,7 +84,7 @@ test('provider-independent tailoring accepts six projects and retains selected p
       return { content: JSON.stringify(result), durationMs: 1, model: 'test-model', providerId: selection.providerId, providerName: selection.providerId, fallbackUsed: false };
     };
     for (const providerId of ['codex', 'gemini']) {
-      const tailored = await runAiTailoring(job, jd, { providerId });
+      const tailored = await runAiTailoring(job, jd, { providerId, adjacentMode: 'off' });
       assert.equal(tailored.projects.length, 6);
       assert.equal(tailored._providerId, providerId);
       assert.equal(tailored._fallbackUsed, false);

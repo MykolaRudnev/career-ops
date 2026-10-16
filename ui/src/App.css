@@ -72,6 +72,116 @@
 
 @media (max-width: 700px) { .top-nav-btn { padding: 9px 7px; font-size: 12px; } .applied-controls { width: 100%; } .applied-controls select { flex: 1; } }
 
+.market-analytics { display: flex; flex-direction: column; gap: 16px; }
+.analytics-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.analytics-heading h2 { margin: 0; color: var(--text-main); font-size: 22px; }
+.analytics-heading p, .analytics-muted { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; font-weight: 400; }
+.analytics-filters { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; padding: 14px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); }
+.analytics-filters label { display: flex; flex-direction: column; gap: 5px; color: var(--text-muted); font-size: 11px; }
+.analytics-filters select, .analytics-filters input { min-width: 120px; padding: 7px 9px; color: var(--text-main); background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius); }
+.analytics-active-filter { display: flex; align-items: center; gap: 6px; width: fit-content; padding: 6px 10px; color: var(--text-muted); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); font-size: 12px; }
+.analytics-active-filter button { padding: 0 2px; color: var(--text-muted); background: none; font-size: 18px; }
+.analytics-summary { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 10px; }
+.analytics-summary > div { padding: 14px 16px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); }
+.analytics-summary span { display: block; color: var(--text-muted); font-size: 11px; }
+.analytics-summary strong { display: block; margin-top: 4px; color: var(--text-main); font-size: 22px; }
+.analytics-card { padding: 16px; }
+.analytics-bars { display: flex; flex-direction: column; gap: 7px; }
+.analytics-bars button { display: grid; grid-template-columns: 100px minmax(100px, 1fr) 50px; gap: 10px; align-items: center; padding: 5px 0; color: var(--text-main); background: none; text-align: left; }
+.analytics-bars i { height: 8px; overflow: hidden; background: var(--bg-primary); border-radius: 2px; }
+.analytics-bars b { display: block; height: 100%; min-width: 2px; background: var(--accent-teal); }
+.analytics-bars strong { text-align: right; }
+.stack-groups { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: 14px; }
+.stack-groups h4 { margin: 0 0 8px; color: var(--text-muted); font-size: 11px; text-transform: uppercase; }
+.stack-groups button, .paired-grid button { display: flex; justify-content: space-between; width: 100%; padding: 6px 0; color: var(--text-main); background: none; border-bottom: 1px solid var(--border); text-align: left; }
+.stack-groups button:hover, .paired-grid button:hover, .analytics-tech-table button:hover { color: var(--accent-teal); }
+.paired-grid { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: 8px 16px; }
+.analytics-tech-table button { padding: 0; color: var(--text-main); background: none; font-weight: 600; }
+.analytics-comparison th:not(:first-child), .analytics-comparison td:not(:first-child) { text-align: center; }
+.active-filter-strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 34px; color: var(--text-muted); font-size: 12px; }
+.active-filter-strip > strong { color: var(--text-main); }
+.active-filter-strip > div { display: flex; gap: 6px; flex-wrap: wrap; }
+.active-filter-strip > div button { padding: 4px 8px; color: var(--accent-teal); background: rgba(125, 211, 252, .08); border: 1px solid rgba(125, 211, 252, .25); border-radius: var(--radius); }
+.clear-filter-btn { padding: 4px 8px; color: var(--text-muted); background: none; text-decoration: underline; }
+.trend-card { min-height: 420px; }
+.trend-range, .trend-tech-picker, .analytics-row-actions, .technology-detail-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+.trend-tech-picker button { padding: 5px 9px; color: var(--text-muted); background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius); font-size: 12px; }
+.trend-tech-picker button.active { color: var(--accent-teal); border-color: var(--accent-teal); }
+.technology-controls { display: flex; flex-direction: column; gap: 9px; padding: 10px; background: rgba(0, 0, 0, .12); border: 1px solid var(--border); border-radius: var(--radius); }
+.technology-control-row, .technology-selector-row, .selected-technologies, .technology-quick-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.technology-control-row > strong, .selected-technologies > strong { min-width: 126px; color: var(--text-muted); font-size: 11px; }
+.technology-select { position: relative; }
+.technology-select summary, .technology-quick-actions button, .selected-technologies button { padding: 6px 9px; color: var(--text-main); background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius); font-size: 12px; cursor: pointer; }
+.technology-select summary span { color: var(--text-muted); }
+.technology-select-menu { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: min(440px, 80vw); max-height: 420px; overflow: auto; padding: 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 14px 40px rgba(0, 0, 0, .45); }
+.technology-select-menu > input { width: 100%; margin-bottom: 10px; padding: 8px 9px; color: var(--text-main); background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius); }
+.technology-option-group { margin-top: 9px; }
+.technology-option-group > strong { display: block; margin-bottom: 4px; color: var(--text-muted); font-size: 10px; text-transform: uppercase; }
+.technology-option-group label { display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 6px; padding: 5px 3px; color: var(--text-main); font-size: 12px; cursor: pointer; }
+.technology-option-group label:hover { background: var(--bg-hover); }
+.technology-option-group small { color: var(--text-muted); }
+.selected-technologies button { color: var(--accent-teal); border-color: rgba(125, 211, 252, .35); }
+.selected-technologies > span { color: var(--text-muted); font-size: 12px; }
+.technology-selection-warning { margin: 0; color: var(--status-warning); font-size: 11px; }
+.technology-offer-shortcuts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.technology-offer-shortcuts > strong { color: var(--text-muted); font-size: 11px; }
+.technology-offer-shortcuts > span { color: var(--text-muted); font-size: 11px; }
+.trend-summaries { display: flex; gap: 10px; flex-wrap: wrap; }
+.trend-summaries > div { min-width: 120px; padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius); }
+.trend-summaries span, .trend-summaries small { display: block; color: var(--text-muted); font-size: 10px; }
+.trend-summaries strong { display: block; margin: 2px 0; font-size: 16px; }
+.trend-summaries .positive { color: var(--status-positive); }
+.trend-summaries .negative { color: var(--status-danger); }
+.trend-summaries .neutral { color: var(--text-muted); }
+.trend-chart { width: 100%; height: 280px; }
+.trend-empty { display: grid; place-items: center; height: 220px; color: var(--text-muted); border: 1px dashed var(--border); border-radius: var(--radius); }
+.trend-warning { margin: 0; color: var(--text-muted); font-size: 11px; }
+.technology-detail-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 8px; }
+.technology-detail-grid > div, .technology-detail-grid > button { display: flex; justify-content: space-between; padding: 9px 10px; color: var(--text-main); background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius); text-align: left; }
+.technology-detail-grid span { color: var(--text-muted); }
+.offer-preview-row > td { padding: 0 14px 14px !important; background: rgba(0, 0, 0, .12); }
+.offer-preview-list { display: flex; flex-direction: column; gap: 7px; padding: 12px 0; }
+.offer-preview-heading { color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.offer-preview-card { display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(220px, 1fr) 90px; align-items: center; gap: 14px; width: 100%; padding: 10px 12px; color: var(--text-main); background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius); text-align: left; }
+.offer-preview-card:hover { border-color: var(--accent-teal); background: var(--bg-hover); }
+.offer-preview-card span, .offer-preview-card small { display: block; min-width: 0; }
+.offer-preview-card small { margin-top: 3px; color: var(--text-muted); font-size: 11px; }
+.offer-preview-score { color: var(--accent-teal); font-size: 16px; font-weight: 700; text-align: right; }
+.offer-preview-score small { font-size: 9px; text-transform: uppercase; }
+.offer-preview-more { align-self: flex-start; }
+.offer-preview-empty { padding: 18px; color: var(--text-muted); text-align: center; border: 1px dashed var(--border); border-radius: var(--radius); }
+.analytics-lower-tabs { display: flex; gap: 4px; margin: -4px 0 14px; border-bottom: 1px solid var(--border); }
+.analytics-lower-tabs button { padding: 9px 12px; color: var(--text-muted); background: none; border-bottom: 2px solid transparent; font-weight: 600; }
+.analytics-lower-tabs button.active { color: var(--accent-teal); border-bottom-color: var(--accent-teal); }
+.filtered-offers-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.filtered-offer-chips, .filtered-offer-controls, .filtered-offer-pagination { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.filtered-offer-chips { margin-top: 7px; }
+.filtered-offer-chips > button:not(.clear-filter-btn), .filtered-offer-chips > span { padding: 4px 7px; color: var(--accent-teal); background: rgba(125, 211, 252, .08); border: 1px solid rgba(125, 211, 252, .25); border-radius: var(--radius); font-size: 11px; }
+.filtered-offer-controls label, .filtered-offer-pagination label { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 11px; }
+.filtered-offer-controls select, .filtered-offer-pagination select { padding: 6px 8px; color: var(--text-main); background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius); }
+.filtered-offers-table { min-width: 1320px; font-size: 11px; }
+.filtered-offers-table td { vertical-align: top; }
+.filtered-offers-table td:nth-child(1) { min-width: 190px; }
+.filtered-offers-table td:nth-child(6) { min-width: 210px; }
+.filtered-offers-table td:last-child { min-width: 240px; }
+.filtered-offers-table td > small { display: block; margin-top: 3px; color: var(--text-muted); font-size: 9px; }
+.offer-title-button { color: var(--text-main); background: none; font-weight: 600; text-align: left; }
+.offer-title-button:hover { color: var(--accent-teal); }
+.offer-technologies { display: flex; gap: 4px; flex-wrap: wrap; }
+.offer-technologies span { padding: 2px 5px; color: var(--text-muted); background: var(--bg-primary); border: 1px solid var(--border); border-radius: 4px; }
+.offer-technologies span.matched { color: var(--accent-teal); border-color: rgba(125, 211, 252, .4); }
+.offer-technologies small { align-self: center; color: var(--text-muted); }
+.filtered-offer-pagination { justify-content: flex-end; margin-top: 12px; color: var(--text-muted); font-size: 11px; }
+
+@media (max-width: 900px) {
+  .analytics-summary { grid-template-columns: repeat(2, 1fr); }
+  .stack-groups, .paired-grid, .technology-detail-grid { grid-template-columns: repeat(2, 1fr); }
+  .offer-preview-card { grid-template-columns: 1fr; }
+  .offer-preview-score { text-align: left; }
+  .technology-control-row > strong, .selected-technologies > strong { min-width: 100%; }
+  .filtered-offers-heading { flex-direction: column; }
+}
+
 .ai-provider-panel {
   background: var(--bg-secondary);
   border: 1px solid var(--border);

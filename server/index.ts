@@ -21,6 +21,8 @@ import { loadDashboardProfile } from "./profile.ts";
 import { createManualJob, loadManualJobs } from "./manualJobs.ts";
 import { operationManager } from "./operations.ts";
 import { applicationCoverContext, loadCoverLetter, saveCoverLetterEdit } from "./coverLetter.ts";
+import { buildAnalyticsIndex, findAnalyticsJob, getMarketAnalyticsIndex, getTechnologyTrend } from "./marketAnalytics.mjs";
+import { resolveAdjacentMode } from "./adjacentSkills.mjs";
 
 import { applicationHistory, recoverInterruptedApplications, startApplications } from "./application/service.ts";
 
@@ -86,8 +88,8 @@ app.get("/api/applications", (_req, res) => {
 });
 app.post("/api/applications", (req, res) => {
   try {
-    const { jobs, mode = "DRY_RUN", providerId, model } = req.body || {};
-    const operation = startApplications(jobs, { mode, providerId, model });
+    const { jobs, mode = "DRY_RUN", providerId, model, adjacentMode } = req.body || {};
+    const operation = startApplications(jobs, { mode, providerId, model, adjacentMode: resolveAdjacentMode(adjacentMode) });
     res.status(202).json({ operation });
   } catch (error: any) { res.status(400).json({ error: error.message }); }
 });
@@ -122,11 +124,40 @@ app.get("/api/status", (req, res) => {
 app.get("/api/pipeline", (req, res) => {
   try {
     const { pending, processed } = parsePipeline();
+    const analytics = { jobs: buildAnalyticsIndex([], [...pending, ...processed]) };
 
     // Attach cached evaluations
     const enrich = (job: any) => {
-      const evalData = careerOps.getEvaluationForDisplay(job);
-      const merged = evalData ? { ...job, ...evalData } : job;
+      const evaluation = careerOps.getEvaluationForDisplay(job);
+      // Keep the list response small; full JD/evidence stays in the server cache.
+      const evalData = {
+        fitScore: evaluation.fitScore,
+        recommendation: evaluation.recommendation,
+        strengths: evaluation.strengths,
+        gaps: evaluation.gaps,
+        missingMandatorySkills: evaluation.missingMandatorySkills,
+        compatibilityPercent: evaluation.compatibilityPercent,
+        matchClassification: evaluation.matchClassification,
+        compatibilityTier: evaluation.compatibilityTier,
+        reason: evaluation.reason,
+        reasonDisplay: evaluation.reasonDisplay,
+        primaryStack: evaluation.primaryStack,
+        responsibilitySplit: evaluation.responsibilitySplit,
+        evaluatedFrom: evaluation.evaluatedFrom
+      };
+      const market = findAnalyticsJob(analytics, job);
+      const marketFields = market ? {
+        technologies: market.technologies,
+        roleFamily: market.roleFamily,
+        countries: market.countries,
+        workModel: market.workModel,
+        seniority: market.seniority,
+        source: market.source,
+        publishedAt: market.publishedAt,
+        discoveredAt: market.discoveredAt,
+        active: market.active
+      } : {};
+      const merged = { ...job, ...evalData, ...marketFields };
       if (job.pipelineScore == null) return merged;
       const score = job.pipelineScore;
       const matchClassification = score >= 4.5 ? "BEST MATCH" : score >= 4.0 ? "STRONG MATCH" : score >= 3.0 ? "POSSIBLE MATCH" : "LOW MATCH";
@@ -152,6 +183,30 @@ app.get("/api/pipeline", (req, res) => {
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get("/api/market-analytics", (_req, res) => {
+  try {
+    const { pending, processed } = parsePipeline();
+    const index = getMarketAnalyticsIndex(WORKSPACE_ROOT, [...pending, ...processed]);
+    res.json({ ...index, jobs: index.jobs.map(({ canonicalUrl, url, ...job }) => job) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/market-analytics/trend", (req, res) => {
+  try {
+    const { technologies, filters, rangeDays, nodePreset } = req.body || {};
+    if (!Array.isArray(technologies) || technologies.length === 0 || technologies.length > 10) {
+      return res.status(400).json({ error: "Select between 1 and 10 technologies" });
+    }
+    const { pending, processed } = parsePipeline();
+    const index = getMarketAnalyticsIndex(WORKSPACE_ROOT, [...pending, ...processed]);
+    res.json(getTechnologyTrend(index.jobs, { technologies, filters, rangeDays, nodePreset }));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -203,11 +258,11 @@ app.post("/api/evaluate/all", async (req, res) => {
 // 5. Generate Tailored CV
 app.post("/api/tailor-cv", async (req, res) => {
   try {
-    const { job, providerId, model } = req.body;
+    const { job, providerId, model, adjacentMode } = req.body;
     if (!job || !job.company || !job.title) {
       return res.status(400).json({ success: false, error: "Missing job company or title" });
     }
-    const operation = careerOps.startTailoredCv(job, { providerId, model });
+    const operation = careerOps.startTailoredCv(job, { providerId, model, adjacentMode: resolveAdjacentMode(adjacentMode) });
     res.status(202).json({ success: true, operation });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -301,14 +356,14 @@ app.get("/api/manual-jobs", (_req, res) => {
 
 app.post("/api/manual-jobs", async (req, res) => {
   try {
-    const { job: input, addAnyway, generateCv, providerId, model } = req.body || {};
+    const { job: input, addAnyway, generateCv, providerId, model, adjacentMode } = req.body || {};
     const created = await createManualJob(input || {}, { addAnyway: addAnyway === true });
     if (!created.created) {
       return res.status(409).json({ success: false, duplicate: true, existingJobs: created.duplicates });
     }
     const job = created.job!;
     const evaluation = await careerOps.evaluateJob(job);
-    const operation = generateCv === true ? careerOps.startTailoredCv(job, { providerId, model }) : undefined;
+    const operation = generateCv === true ? careerOps.startTailoredCv(job, { providerId, model, adjacentMode: resolveAdjacentMode(adjacentMode) }) : undefined;
     res.status(201).json({ success: true, job: { ...job, ...evaluation }, evaluation, operation });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });

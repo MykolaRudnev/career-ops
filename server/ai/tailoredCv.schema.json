@@ -48,6 +48,31 @@
         "projects_selected": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["name", "reason"], "properties": { "name": { "type": "string" }, "reason": { "type": "string" } } } },
         "jd_keywords_matched": { "type": "array", "items": { "type": "string" } },
         "experience_emphasis": { "type": "string" },
+        "adjacent_skills_added": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["skill", "bucket", "placement"],
+            "properties": {
+              "skill": { "type": "string" },
+              "bucket": { "type": "string", "enum": ["tooling", "stack"] },
+              "placement": { "type": "string" }
+            }
+          }
+        },
+        "interview_prep": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["skill", "studyHint"],
+            "properties": {
+              "skill": { "type": "string" },
+              "studyHint": { "type": "string" }
+            }
+          }
+        },
         "primary_domain": {
           "type": "string",
           "enum": [

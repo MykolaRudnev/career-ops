@@ -821,7 +821,7 @@ function sourceContainsFact(sourceText, value) {
 
 /**
  * @param {string} targetText generated candidate-facing HTML/Markdown/text
- * @param {{ sourcePaths?: string[], configPath?: string, cwd?: string }} options
+ * @param {{ sourcePaths?: string[], configPath?: string, cwd?: string, allowFacts?: string[] }} options
  * @returns {{ verdict: 'pass'|'warn'|'block', invented: string[], unsupportedFacts: object[], forbidden: string[], warnings: string[] }}
  * @throws when the config is invalid
  */
@@ -829,6 +829,7 @@ export function verifyFacts(targetText, {
   sourcePaths = DEFAULT_SOURCES,
   configPath = DEFAULT_CONFIG,
   cwd = process.cwd(),
+  allowFacts = [],
 } = {}) {
   const sourceText = sourcePaths.map(path => readIfExists(resolveInputPath(path, cwd))).join('\n');
   const { missing: configMissing, config } = loadFactConfig(resolveInputPath(configPath, cwd));
@@ -836,7 +837,7 @@ export function verifyFacts(targetText, {
   const targetClaims = metricClaims(targetText);
   const invented = [...targetClaims].filter(claim => !allowed.has(claim));
   const sourceNormalized = normalizeFact(stripMarkup(sourceText));
-  const allowedFacts = new Set(config.allow_facts.map(normalizeFact));
+  const allowedFacts = new Set([...config.allow_facts, ...allowFacts].map(normalizeFact));
   const unsupportedFacts = [...factClaims(targetText, sourceNormalized), ...delegatedAuthorshipClaims(targetText, sourceText)]
     .filter(({ value }) => !sourceContainsFact(sourceNormalized, value) && !allowedFacts.has(value))
     .filter((claim, index, claims) => claims.findIndex(other => other.kind === claim.kind && other.value === claim.value) === index);
@@ -881,15 +882,17 @@ export function assertFacts(targetText, options = {}) {
 /** Parse the fact-validator command-line arguments. */
 function parseCliArgs(args) {
   const sourcePaths = [];
+  const allowFacts = [];
   let targetArg = '';
   let configPath = DEFAULT_CONFIG;
   let json = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === '--source' || arg === '--config') {
+    if (arg === '--source' || arg === '--config' || arg === '--allow-fact') {
       if (!args[i + 1]) throw new Error(`${arg} requires a path`);
       if (arg === '--source') sourcePaths.push(args[++i]);
-      else configPath = args[++i];
+      else if (arg === '--config') configPath = args[++i];
+      else allowFacts.push(args[++i]);
     } else if (arg === '--help' || arg === '-h') {
       return { help: true };
     } else if (arg === '--json') {
@@ -902,12 +905,12 @@ function parseCliArgs(args) {
       throw new Error(`unexpected extra positional argument: ${arg}`);
     }
   }
-  return { targetArg, sourcePaths, configPath, json, help: false };
+  return { targetArg, sourcePaths, configPath, allowFacts, json, help: false };
 }
 
 /** Return the command-line usage text. */
 function usage() {
-  return `Usage: node verify-cv-facts.mjs <generated-document> [--source path] [--config path] [--json]
+  return `Usage: node verify-cv-facts.mjs <generated-document> [--source path] [--config path] [--allow-fact text] [--json]
        node verify-cv-facts.mjs --self-test
 
 Checks generated candidate-facing text for unsupported metrics and explicitly asserted
@@ -1268,6 +1271,7 @@ export function runCli(args = process.argv.slice(2)) {
     const result = verifyFacts(readFileSync(targetPath, 'utf-8'), {
       sourcePaths: parsed.sourcePaths.length ? parsed.sourcePaths : DEFAULT_SOURCES,
       configPath: parsed.configPath,
+      allowFacts: parsed.allowFacts,
     });
     // On stderr, before any verdict line and regardless of it: with no config
     // the phrase lists are empty, so "passed" below means the phrase check never

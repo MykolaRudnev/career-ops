@@ -35,6 +35,51 @@ export interface PipelineJob {
   description?: string;
   sourceName?: string;
   notes?: string;
+  technologies?: string[];
+  roleFamily?: string;
+  seniority?: string;
+  publishedAt?: string | null;
+  discoveredAt?: string | null;
+  active?: boolean;
+}
+
+export type AdjacentMode = "off" | "conservative" | "normal";
+
+export interface AnalyticsJob {
+  jobId: string;
+  title: string;
+  company: string;
+  source: string;
+  technologies: string[];
+  roleFamily: string;
+  countries: string[];
+  location: string;
+  workModel: string;
+  seniority: string;
+  matchTier: string | null;
+  matchScore: number | null;
+  publishedAt: string | null;
+  discoveredAt: string | null;
+  active: boolean;
+}
+
+export interface AnalyticsIndex {
+  version: number;
+  generatedAt: string;
+  sourceGeneratedAt: string | null;
+  jobs: AnalyticsJob[];
+}
+
+export interface TechnologyTrend {
+  rangeDays: 30 | 90 | 180;
+  bucket: "day" | "week";
+  technologies: string[];
+  data: Array<{ bucket: string; label: string; [technology: string]: string | number }>;
+  summaries: Array<{ technology: string; current: number; previous: number; changePercent: number | null }>;
+  coverage: { publishedAt: number; discoveredAtFallback: number; missingDate: number };
+  filteredJobs: number;
+  hasEnoughHistory: boolean;
+  warning: string;
 }
 
 export function appliedJobsJson(jobs: PipelineJob[]): string {
@@ -201,6 +246,27 @@ export async function fetchPipeline(): Promise<{ pending: PipelineJob[]; process
   return { pending: data.pending, processed: data.processed };
 }
 
+export async function fetchMarketAnalytics(): Promise<AnalyticsIndex> {
+  const res = await fetch(`${API_BASE}/api/market-analytics`);
+  if (!res.ok) throw new Error("Failed to build market analytics index");
+  return res.json();
+}
+
+export async function fetchTechnologyTrend(
+  request: { technologies: string[]; filters: Record<string, unknown>; rangeDays: number; nodePreset: boolean },
+  signal?: AbortSignal
+): Promise<TechnologyTrend> {
+  const res = await fetch(`${API_BASE}/api/market-analytics/trend`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+    signal
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to load technology trend");
+  return data;
+}
+
 export async function runJobSearch(): Promise<any> {
   const res = await fetch(`${API_BASE}/api/scan`, { method: "POST" });
   const data = await res.json();
@@ -242,11 +308,11 @@ export async function evaluateJob(job: PipelineJob): Promise<any> {
   return data.evaluation;
 }
 
-export async function generateTailoredCv(job: PipelineJob, providerId: string, model?: string): Promise<any> {
+export async function generateTailoredCv(job: PipelineJob, providerId: string, model?: string, adjacentMode: AdjacentMode = "normal"): Promise<any> {
   const res = await fetch(`${API_BASE}/api/tailor-cv`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ job, providerId, model })
+    body: JSON.stringify({ job, providerId, model, adjacentMode })
   });
   const data = await res.json();
   if (!res.ok || !data?.success) throw new Error(data.error || "Tailoring failed");
@@ -317,7 +383,7 @@ export async function cancelOperation(operationId: string): Promise<OperationRec
 
 export async function createManualJob(
   job: ManualJobInput,
-  options: { addAnyway?: boolean; generateCv?: boolean; providerId?: string; model?: string } = {}
+  options: { addAnyway?: boolean; generateCv?: boolean; providerId?: string; model?: string; adjacentMode?: AdjacentMode } = {}
 ): Promise<{ job: PipelineJob; evaluation: any; operation?: OperationRecord }> {
   const res = await fetch(`${API_BASE}/api/manual-jobs`, {
     method: "POST",
@@ -438,6 +504,12 @@ export interface TailoringDiffData {
   pages: number;
   primaryDomain?: string;
   secondaryDomains?: string[];
+  adjacentSkills?: {
+    score: number;
+    addTooling: string[];
+    addStack: string[];
+    added: Array<{ skill: string; bucket: "tooling" | "stack"; placement: string }>;
+  };
   tailoringDiff: {
     summary_focus: string;
     skills_promoted: string[];
@@ -447,6 +519,8 @@ export interface TailoringDiffData {
     experience_emphasis: string;
     primary_domain?: string;
     secondary_domains?: string[];
+    adjacent_skills_added?: Array<{ skill: string; bucket: "tooling" | "stack"; placement: string }>;
+    interview_prep?: Array<{ skill: string; studyHint: string }>;
   };
   htmlPath: string;
   pdfPath: string;
@@ -465,10 +539,10 @@ export async function fetchApplicationHistory(): Promise<any[]> {
   if (!res.ok) throw new Error('Could not load application history');
   return (await res.json()).attempts;
 }
-export async function startApplications(jobs: PipelineJob[], mode: 'DRY_RUN' | 'SUBMIT', providerId: string, model: string): Promise<OperationRecord> {
+export async function startApplications(jobs: PipelineJob[], mode: 'DRY_RUN' | 'SUBMIT', providerId: string, model: string, adjacentMode: AdjacentMode = "normal"): Promise<OperationRecord> {
   const res = await fetch('/api/applications', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jobs: jobs.map(({ id, url }) => ({ id, url })), mode, providerId, model })
+    body: JSON.stringify({ jobs: jobs.map(({ id, url }) => ({ id, url })), mode, providerId, model, adjacentMode })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Could not start applications');

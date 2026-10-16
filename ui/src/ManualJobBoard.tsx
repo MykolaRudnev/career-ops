@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { ClipboardPlus, ExternalLink, Sparkles } from "lucide-react";
-import { createManualJob, type ManualJobInput, type OperationRecord, type PipelineJob } from "./api";
+import { createManualJob, type AdjacentMode, type ManualJobInput, type OperationRecord, type PipelineJob } from "./api";
 
 const EMPTY: ManualJobInput = {
   title: "",
@@ -17,6 +17,7 @@ const EMPTY: ManualJobInput = {
 export function ManualJobBoard(props: {
   providerId: string;
   model: string;
+  adjacentMode: AdjacentMode;
   providerName: string;
   disabled?: boolean;
   onSaved: (job: PipelineJob, generated: boolean) => void;
@@ -39,7 +40,8 @@ export function ManualJobBoard(props: {
         addAnyway,
         generateCv,
         providerId: props.providerId,
-        model: props.model
+        model: props.model,
+        adjacentMode: props.adjacentMode
       });
       setDuplicates([]);
       setForm(EMPTY);

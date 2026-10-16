@@ -1,0 +1,19 @@
+{
+  "tooling": [
+    "Nx", "Turborepo", "pnpm workspaces", "Lerna", "Vite", "Webpack", "Rspack", "Storybook", "Chromatic",
+    "Playwright", "Cypress", "Vitest", "Jest", "React Testing Library", "MSW", "Zustand", "Redux Toolkit",
+    "Jotai", "TanStack Query", "SWR", "tRPC", "Zod", "React Hook Form", "Radix UI", "shadcn/ui", "MUI",
+    "Chakra UI", "Framer Motion", "Module Federation", "Micro-frontends", "GitHub Actions", "GitLab CI", "Docker",
+    "Vercel", "Netlify", "Sentry", "Datadog RUM", "LaunchDarkly", "Feature flags", "i18next", "Lighthouse",
+    "Web Vitals", "ESLint", "Prettier", "Husky", "Figma", "Copilot", "Claude Code", "Cursor", "MCP"
+  ],
+  "stack": [
+    "Vue", "Nuxt", "Angular", "Svelte", "Remix", "Astro", "React Native", "Expo",
+    "Node.js/Express/NestJS API work", "Prisma", "PostgreSQL basics", "AWS basics", "Electron"
+  ],
+  "foreign": [
+    "Java", "Kotlin", "Scala", "C#/.NET", "Go", "Rust", "Python backend",
+    "PHP backend frameworks other than Magento context", "Kubernetes ops", "Terraform", "data engineering",
+    "ML engineering", "native iOS/Android", "certifications", "years-of-experience claims", "people-management titles"
+  ]
+}

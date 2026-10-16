@@ -163,6 +163,8 @@ const NON_REQUIREMENT_HEADER_RE = new RegExp(
   'im'
 );
 
+const NICE_TO_HAVE_HEADER_RE = /(?:preferred|nice[- ]to[- ]have|it\s+would\s+be\s+great)/i;
+
 // `\r?$` is required, not cosmetic: JS treats \r as a line terminator, so `.`
 // cannot consume it and a bare `$` never matches on a CRLF-split line.
 const BULLET_LINE_RE = /^\s*[-*•]\s*(.+)\r?$/;
@@ -236,10 +238,12 @@ const STOPWORDS = new Set([
  * @param {string} jdText
  * @returns {{skills: string[], sawRequirementSection: boolean}}
  */
-function scanJd(jdText) {
+function scanJd(jdText, extraSkills = []) {
   const lines = jdText.split('\n');
   const skills = new Set();
+  const weightedSkills = new Map();
   let inRequirementsBlock = false;
+  let requirementWeight = 2;
   let sawRequirementSection = false;
 
   for (const line of lines) {
@@ -259,6 +263,7 @@ function scanJd(jdText) {
     }
     if (REQUIREMENT_HEADER_RE.test(headerLine)) {
       inRequirementsBlock = true;
+      requirementWeight = NICE_TO_HAVE_HEADER_RE.test(headerLine) ? 1 : 2;
       sawRequirementSection = true;
       continue;
     }
@@ -276,11 +281,20 @@ function scanJd(jdText) {
         const token = m[1].trim();
         if (!STOPWORDS.has(token.toLowerCase()) && token.length > 1) {
           skills.add(token);
+          weightedSkills.set(token, Math.max(weightedSkills.get(token) || 0, requirementWeight));
+        }
+      }
+      for (const candidate of extraSkills) {
+        const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+        const match = bulletText.match(new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu'));
+        if (match) {
+          skills.add(match[0]);
+          weightedSkills.set(match[0], Math.max(weightedSkills.get(match[0]) || 0, requirementWeight));
         }
       }
     }
   }
-  return { skills: [...skills], sawRequirementSection };
+  return { skills: [...skills], weightedSkills: [...weightedSkills].map(([skill, weight]) => ({ skill, weight })), sawRequirementSection };
 }
 
 /**
@@ -290,6 +304,10 @@ function scanJd(jdText) {
  */
 function extractJdSkills(jdText) {
   return scanJd(jdText).skills;
+}
+
+function extractJdSkillsWeighted(jdText, extraSkills = []) {
+  return scanJd(jdText, extraSkills).weightedSkills;
 }
 
 /**
@@ -455,7 +473,7 @@ function classifySkillGaps(jdSkills, cvText) {
 }
 
 // ── Exports (for test-all.mjs and other consumers) ───────────────────
-export { extractJdSkills, skillMentionedInText, classifySkillGaps, diagnoseExtraction };
+export { extractJdSkills, extractJdSkillsWeighted, skillMentionedInText, classifySkillGaps, diagnoseExtraction };
 
 // ── CLI ──────────────────────────────────────────────────────────────
 

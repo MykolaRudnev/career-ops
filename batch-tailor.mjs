@@ -5,6 +5,7 @@ import { resolve, join } from 'path';
 import { flagValue, hasFlag, validateFlags } from './lib/cli-flags.mjs';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { resolveAdjacentMode } from './server/adjacentSkills.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 // CAREER_OPS_BATCH_STATE overrides the batch-state.tsv path — the same override
@@ -18,10 +19,11 @@ const reportsDir = join(__dirname, 'reports');
 const USAGE = `career-ops batch tailor — bulk generate tailored CVs for high-scoring batch jobs
 
 Usage:
-  node batch-tailor.mjs [--min-score N]
+  node batch-tailor.mjs [--min-score N] [--adjacent MODE]
 
 Options:
   --min-score N   Minimum score to tailor (default: 4.0). The --min-score=N form works too.
+  --adjacent MODE off, conservative, or normal (default: CAREER_OPS_ADJACENT or normal).
   --help, -h      Show this help
 `;
 
@@ -36,7 +38,15 @@ const args = process.argv.slice(2);
 // so the malformed flag is never reported and the numeric check below never
 // runs. This script has nothing more specific to say about a missing operand
 // than the shared message, which is exactly when opting in is right.
-validateFlags(args, ['--min-score', '--help', '-h'], USAGE, { valueFlags: ['--min-score'], requireOperand: true });
+validateFlags(args, ['--min-score', '--adjacent', '--help', '-h'], USAGE, { valueFlags: ['--min-score', '--adjacent'], requireOperand: true });
+
+let adjacentMode;
+try {
+  adjacentMode = resolveAdjacentMode(hasFlag(args, '--adjacent') ? flagValue(args, '--adjacent') : undefined);
+} catch (error) {
+  console.error(`ERROR: ${error.message}`);
+  process.exit(1);
+}
 
 let minScore = 4.0;
 if (hasFlag(args, '--min-score')) {
@@ -112,7 +122,7 @@ for (let i = 0; i < toProcess.length; i++) {
   const matchingReport = reports.find(f => f.startsWith(`${job.reportNum}-`) && f.endsWith('.md'));
   const reportContext = matchingReport ? `\nThe evaluation report is available at: reports/${matchingReport}` : '';
   
-  const prompt = `Tailor the CV for this role and generate the HTML and PDF CVs. \nURL: ${job.url}\nReport number: ${job.reportNum}${reportContext}`;
+  const prompt = `Tailor the CV for this role and generate the HTML and PDF CVs. \nURL: ${job.url}\nReport number: ${job.reportNum}${reportContext}\nAdjacent skills mode: ${adjacentMode}. Follow modes/pdf.md exactly and run the adjacent-skill planner before drafting.`;
   
   const claudeArgs = [
     '-p',

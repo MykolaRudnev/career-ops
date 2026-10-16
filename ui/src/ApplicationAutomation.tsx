@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { startApplications, fetchApplicationHistory, type PipelineJob, type OperationRecord } from './api';
+import { startApplications, fetchApplicationHistory, type AdjacentMode, type PipelineJob, type OperationRecord } from './api';
 import { isPolandJob } from './marketLane';
 
 const final = new Set(['SUBMITTED', 'READY_TO_SUBMIT', 'NEEDS_MANUAL', 'FAILED', 'CANCELLED', 'CLOSED', 'SKIPPED', 'ALREADY_APPLIED']);
 export function useApplicationAutomation(props: {
-  busy: boolean; providerId: string; model: string;
+  busy: boolean; providerId: string; model: string; adjacentMode: AdjacentMode;
   onOperation: (op: OperationRecord) => void;
   cancel: (id: string) => void;
   notify: (text: string) => void;
@@ -26,7 +26,7 @@ export function useApplicationAutomation(props: {
     if (bulk && !window.confirm(`Queue ${jobs.length} non-Poland jobs in ${mode} mode?\n\nGenerate/reuse CVs, fill supported forms${mode === 'SUBMIT' ? ' and submit where possible' : ' without final submission'}. Poland roles are never bulk-queued — pick them with Apply on each row. Blocked jobs need manual review. At most one job per company will be attempted.`)) return;
     setStarting(true);
     try {
-      const operation = await startApplications(jobs, mode, props.providerId, props.model);
+      const operation = await startApplications(jobs, mode, props.providerId, props.model, props.adjacentMode);
       props.onOperation(operation);
       setAttempts(await fetchApplicationHistory());
     } catch (error: any) { props.notify(error.message); }

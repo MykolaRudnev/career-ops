@@ -56,6 +56,11 @@ function postedAtMillis(value) {
   return Number.isFinite(number) ? number : undefined;
 }
 
+function postingKey(job) {
+  const locations = String(job.location || '').split(',').map(value => value.trim()).filter(Boolean).sort().join('|');
+  return `${job.company}\0${job.title}\0${job.postedAt || ''}\0${locations}`;
+}
+
 function buildRequest(entry, pageTo) {
   const apiUrl = assertNoFluffUrl(entry.api || API_URL);
   apiUrl.pathname = '/api/search/posting';
@@ -154,8 +159,9 @@ export default {
         redirect: 'error',
       });
       for (const job of parseNoFluffJobsResponse(json)) {
-        if (seen.has(job.url)) continue;
-        seen.add(job.url);
+        const key = postingKey(job);
+        if (seen.has(key)) continue;
+        seen.add(key);
         jobs.push(job);
       }
       const totalPages = Number(json?.totalPages || 0);

@@ -161,6 +161,16 @@ try {
     }
   }
 
+  {
+    const accepted = runTailor(['--min-score=9.9', '--adjacent=conservative'], sandbox.file);
+    const rejected = runTailor(['--min-score=9.9', '--adjacent=reckless'], sandbox.file);
+    if (accepted.code === 0 && rejected.code === 1 && /Invalid adjacent skills mode/.test(rejected.out)) {
+      pass('--adjacent accepts the three policy modes and rejects unknown values');
+    } else {
+      fail(`adjacent mode parsing: accepted=${accepted.code} rejected=${rejected.code} ${rejected.out}`.slice(0, 220));
+    }
+  }
+
   // ── 5. The worker's mode file must not be a cwd-relative path ──
   // The state file resolved through __dirname while `modes/pdf.md` was passed
   // bare, so running the script from anywhere else handed the worker a path

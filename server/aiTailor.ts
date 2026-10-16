@@ -17,6 +17,7 @@ import {
 import { countPdfPagesFromBuffer, parseLoggedPdfPageCount } from "./pdfPageCount.mjs";
 import { OperationCancelledError, ProcessTimeoutError, runCancellableCommand } from "./process.ts";
 import { jobArtifactDir, tailoredPdfFilename } from "./jobArtifacts.ts";
+import { adjacentPromptSection, planAdjacentSkills, resolveAdjacentMode, validateAdjacentSkills } from "./adjacentSkills.mjs";
 
 export interface TailoringDiff {
   summary_focus: string;
@@ -27,6 +28,8 @@ export interface TailoringDiff {
   experience_emphasis: string;
   primary_domain?: string;
   secondary_domains?: string[];
+  adjacent_skills_added?: Array<{ skill: string; bucket: "tooling" | "stack"; placement: string }>;
+  interview_prep?: Array<{ skill: string; studyHint: string }>;
 }
 
 export interface AiTailorResult {
@@ -53,6 +56,21 @@ export interface AiTailorResult {
   _providerId?: string;
   _providerName?: string;
   _fallbackUsed?: boolean;
+  _adjacentPlan?: ReturnType<typeof planAdjacentSkills>;
+  _adjacentMode?: string;
+}
+
+export function assertProjectNamesAreNotEmployers(
+  projects: Array<{ name: string }>,
+  experience: Array<{ company: string }>
+): void {
+  const normalize = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const isSiteName = (value: string) => /^(?:https?:\/\/)?(?:[\p{L}\p{N}-]+\.)+[\p{L}]{2,}(?:\/.*)?$/iu.test(value.trim());
+  const employers = experience.map(({ company }) => ({ company, normalized: normalize(company) })).filter(({ normalized }) => normalized.length >= 4);
+  const conflicts = projects
+    .filter(({ name }) => !isSiteName(name) && employers.some(({ normalized }) => normalize(name).includes(normalized)))
+    .map(({ name }) => name);
+  if (conflicts.length) throw new Error(`Invalid AI tailoring response: employer names cannot be project titles: ${conflicts.join(", ")}`);
 }
 
 export interface TailorJobMetadata {
@@ -76,6 +94,7 @@ export interface TailorJobMetadata {
   primaryDomain: string;
   secondaryDomains?: string[];
   tailoringDiff: TailoringDiff;
+  adjacentSkills?: ReturnType<typeof planAdjacentSkills> & { added: TailoringDiff["adjacent_skills_added"] };
   htmlPath: string;
   pdfPath: string;
 }
@@ -177,13 +196,17 @@ export async function getFullJobDescription(
  */
 export function buildTailoringPrompt(
   job: { title: string; company: string; location?: string; extra?: string; url: string },
-  fullJd: string
+  fullJd: string,
+  adjacentMode: string = process.env.CAREER_OPS_ADJACENT || "normal"
 ): string {
   const cvMdPath = path.join(WORKSPACE_ROOT, "cv.md");
   const projectsMdPath = path.join(WORKSPACE_ROOT, "knowledge", "projects.md");
   const aiMdPath = path.join(WORKSPACE_ROOT, "knowledge", "ai-agentic-development.md");
 
   const cvMd = fs.readFileSync(cvMdPath, "utf8");
+  const resolvedAdjacentMode = resolveAdjacentMode(adjacentMode);
+  const adjacentPlan = planAdjacentSkills(fullJd, cvMd, resolvedAdjacentMode);
+  const adjacentSection = resolvedAdjacentMode === "off" ? "" : `${adjacentPromptSection(adjacentPlan)}\n`;
   const projectsMd = fs.existsSync(projectsMdPath) ? fs.readFileSync(projectsMdPath, "utf8") : "";
 
   const classified = classifyDomain(job.title, fullJd, job.extra || "");
@@ -259,7 +282,7 @@ For each vacancy, show ONLY:
 3. Essential baseline frontend skills (JavaScript, TypeScript, HTML5, CSS3, Git, Responsive Design)
 
 Each tailored CV must surface ONLY the narrow subset that maximizes positioning for this specific vacancy.
-
+${adjacentSection}
 ==================================================
 TECHNICAL SKILLS RULES & LIMITS
 ==================================================
@@ -322,7 +345,7 @@ ${loadParsedMasterCv().experience.map((entry, index) => `  ${index + 1}. ${entry
 - Recent/relevant roles: approximately 3–5 strong bullets. Older/supporting roles: 1–3 bullets.
 - Each bullet should normally fit 1–2 visual lines: action + technical/business scope + result or practice. Avoid vague claims without concrete context; never invent metrics.
 - Map mandatory JD requirements into Work Experience wherever employer-specific factual evidence exists; do not put all matching words only in Technical Skills. A skill inventory alone does not establish its use at a particular employer. Do not fabricate testing, design-system ownership or integrations to close a gap.
-- Do NOT introduce unlisted tool names into experience bullets that are absent from cv.md.
+${resolvedAdjacentMode === "off" ? "- Do NOT introduce unlisted tool names into experience bullets that are absent from cv.md." : "- Do NOT introduce unlisted tool names into experience bullets that are absent from cv.md, except for the single explicitly permitted ALLOWED ADJACENT SKILLS tooling rephrase."}
 
 ==================================================
 PROJECT SELECTION RULES
@@ -332,7 +355,10 @@ PROJECT SELECTION RULES
 - PRIMARY DOMAIN pool must supply at least 75% of selected projects.
 - SHOPIFY whitelist ONLY: Glasy.pl, Ascent, Warmsome, Pixel25, Berg's, Diamandia (keep Diamandia caveat: our version was not released).
 - REACT/NEXT preferred evidence: ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de. Additional source-annotated projects in the PRIMARY PROJECT WHITELIST above may be used when more relevant.
-- MAGENTO/HYVA preferred evidence: HUBER SE, Lufed IT, housetipster.com, edycja.pl, fmic.pl, dreamroots.pl, hbsgroup.net, paypair.com, British American Tobacco, catering24.co.uk, solar.com.pl, 3mk.pl. Additional source-annotated projects in the PRIMARY PROJECT WHITELIST above may be used when more relevant.
+- MAGENTO/HYVA preferred evidence: shop.huber-se.com, housetipster.com, edycja.pl, fmic.pl, dreamroots.pl, hbsgroup.net, paypair.com, British American Tobacco, catering24.co.uk, solar.com.pl, 3mk.pl. Additional source-annotated projects in the PRIMARY PROJECT WHITELIST above may be used when more relevant.
+- A project title must identify a product, site, or storefront, never an employer. If a product shares the employer's brand, use the concrete product/site name from the catalog. Never invent names by appending words such as “Platform”, “Product System”, or “Enterprise Platform” to an employer.
+- Preserve contribution level exactly: never rewrite “contributed” as “led”. For BAT/myglo, use “Contributed to frontend architecture, design alignment, and implementation decisions on the German flagship myglo redesign.”
+- Preserve concrete project stacks from the catalog. For Glasy.pl use “Shopify, CSS, Liquid, JavaScript”; do not substitute “Modern CSS”.
 - Supplementary portfolio evidence supplies project scope only. Never infer its employer, dates, release status, metrics or founder ownership, and preserve stated limitations.
 - Give project name, a short primary tech stack, and ONE concise factual scope sentence (normally 15–25 words). Preserve release caveats. Do not repeat experience paragraphs.
 - Professional Development is immutable factual history: the renderer includes every canonical course, newest first. Never select, omit, rewrite or shorten course titles, providers or dates.
@@ -354,7 +380,7 @@ SUMMARY & EXPERIENCE ROUTING
 ==================================================
 STRICT ANTI-FABRICATION
 ==================================================
-- Employment history and quantified claims must trace to cv.md. Project-only scope may also use the source-annotated verified project catalog, within its stated limitations. Never invent technologies, backend databases, management roles, or unverified metrics.
+${resolvedAdjacentMode === "off" ? "- Employment history and quantified claims must trace to cv.md. Project-only scope may also use the source-annotated verified project catalog, within its stated limitations. Never invent technologies, backend databases, management roles, or unverified metrics." : "- Employment history and quantified claims must trace to cv.md. Project-only scope may also use the source-annotated verified project catalog, within its stated limitations. Never invent technologies beyond the ALLOWED ADJACENT SKILLS list, backend databases, management roles, or unverified metrics."}
 - Only verified metrics from cv.md ("16+ production platforms", "~50% organic search traffic", "6+ years commercial experience") may be used.
 
 ==================================================
@@ -394,7 +420,9 @@ Schema:
     ],
     "projects_selected": [{"name": "Project Name", "reason": "Why chosen for this JD"}],
     "jd_keywords_matched": ["Keyword1", "Keyword2"],
-    "experience_emphasis": "What was emphasized in experience bullets"
+    "experience_emphasis": "What was emphasized in experience bullets"${resolvedAdjacentMode === "off" ? "" : `,
+    "adjacent_skills_added": [{"skill": "Only an actually added planned skill", "bucket": "tooling or stack", "placement": "Exact Technical Skills group or the one permitted experience rephrase"}],
+    "interview_prep": [{"skill": "Only an actually added planned skill", "studyHint": "Concrete preparation step"}]`}
   }
 }`;
 }
@@ -430,6 +458,8 @@ function parseTailoringJson(output: string): AiTailorResult {
   if (!Array.isArray(result.projects) || result.projects.length < 2 || result.projects.length > 6 || result.projects.some((item) => !item || typeof item.name !== "string" || typeof item.tech !== "string" || typeof item.description !== "string")) missing.push("projects (2-6 complete entries)");
   const diff = result.tailoring_diff;
   if (!diff || typeof diff.summary_focus !== "string" || !Array.isArray(diff.skills_promoted) || !Array.isArray(diff.projects_selected) || !Array.isArray(diff.jd_keywords_matched) || typeof diff.experience_emphasis !== "string") missing.push("tailoring_diff");
+  if (diff?.adjacent_skills_added !== undefined && (!Array.isArray(diff.adjacent_skills_added) || diff.adjacent_skills_added.some(item => !item || typeof item.skill !== "string" || !["tooling", "stack"].includes(item.bucket) || typeof item.placement !== "string"))) missing.push("tailoring_diff.adjacent_skills_added");
+  if (diff?.interview_prep !== undefined && (!Array.isArray(diff.interview_prep) || diff.interview_prep.some(item => !item || typeof item.skill !== "string" || typeof item.studyHint !== "string"))) missing.push("tailoring_diff.interview_prep");
   if (missing.length > 0) throw new Error(`Invalid or incomplete AI tailoring response: ${missing.join(", ")}`);
   const parsedResult = result as AiTailorResult;
   if (typeof result.primary_domain === "string") parsedResult.primary_domain = result.primary_domain;
@@ -440,12 +470,15 @@ function parseTailoringJson(output: string): AiTailorResult {
 export async function runAiTailoring(
   job: { title: string; company: string; location?: string; extra?: string; url: string },
   fullJd: string,
-  options: { providerId?: string; model?: string } = {},
+  options: { providerId?: string; model?: string; adjacentMode?: string } = {},
   onProgress?: (stage: string) => void,
   onProviderEvent?: (event: ProviderExecutionEvent) => void,
   signal?: AbortSignal
 ): Promise<AiTailorResult> {
-  const prompt = buildTailoringPrompt(job, fullJd);
+  const adjacentMode = resolveAdjacentMode(options.adjacentMode);
+  const cvText = fs.readFileSync(path.join(WORKSPACE_ROOT, "cv.md"), "utf8");
+  const adjacentPlan = planAdjacentSkills(fullJd, cvText, adjacentMode);
+  const prompt = buildTailoringPrompt(job, fullJd, adjacentMode);
   const schemaPath = path.join(WORKSPACE_ROOT, "server", "ai", "tailoredCv.schema.json");
   const response = await aiProviderRegistry.execute(
     { prompt, outputSchemaPath: schemaPath, timeoutMs: 5 * 60_000, signal },
@@ -457,14 +490,21 @@ export async function runAiTailoring(
   );
   onProgress?.("Validating AI Output");
   const parsed = parseTailoringJson(response.content);
+  if (adjacentMode !== "off" && (!Array.isArray(parsed.tailoring_diff.adjacent_skills_added) || !Array.isArray(parsed.tailoring_diff.interview_prep))) {
+    throw new Error("Invalid AI tailoring response: adjacent skill diff fields are required when adjacent skills are enabled");
+  }
   onProgress?.("Domain Validation");
   domainConsistencyValidation(parsed, job, fullJd);
   const { result } = enforceDomainConsistency(parsed, job, fullJd);
+  assertProjectNamesAreNotEmployers(result.projects, loadParsedMasterCv().experience);
   result._durationMs = response.durationMs;
   result._modelUsed = response.model;
   result._providerId = response.providerId;
   result._providerName = response.providerName;
   result._fallbackUsed = response.fallbackUsed;
+  result._adjacentPlan = adjacentPlan;
+  result._adjacentMode = adjacentMode;
+  if (adjacentMode !== "off") validateAdjacentSkills(result, cvText, adjacentPlan);
   return result;
 }
 
@@ -551,7 +591,8 @@ async function renderHtmlAndPdf(
   htmlPath: string,
   pdfPath: string,
   onProgress?: (stage: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  allowFacts: string[] = []
 ): Promise<{ pageCount: number }> {
   fs.mkdirSync(path.dirname(htmlPath), { recursive: true });
   fs.mkdirSync(path.dirname(pdfPath), { recursive: true });
@@ -565,7 +606,7 @@ async function renderHtmlAndPdf(
   const sourceArgs = factSourceArgs();
   if (onProgress) onProgress("Fact Validation");
   try {
-    await runCancellableCommand(process.execPath, ["verify-cv-facts.mjs", htmlPath, ...sourceArgs], { cwd: WORKSPACE_ROOT, signal, timeoutMs: 60_000 });
+    await runCancellableCommand(process.execPath, ["verify-cv-facts.mjs", htmlPath, ...sourceArgs, ...allowFacts.flatMap(fact => ["--allow-fact", fact])], { cwd: WORKSPACE_ROOT, signal, timeoutMs: 60_000 });
   } catch (factErr: any) {
     if (factErr instanceof OperationCancelledError || factErr instanceof ProcessTimeoutError) throw factErr;
     throw new Error(`Fact Validation Failed: ${commandError(factErr)}`);
@@ -573,7 +614,7 @@ async function renderHtmlAndPdf(
   if (onProgress) onProgress("Generating PDF");
   try {
     const pdfSourceFlags = sourceArgs.filter((_, index) => index % 2 === 1).map((file) => `--source=${file}`);
-    const pdfOut = await runCancellableCommand(process.execPath, ["generate-pdf.mjs", htmlPath, pdfPath, "--format=a4", ...pdfSourceFlags], {
+    const pdfOut = await runCancellableCommand(process.execPath, ["generate-pdf.mjs", htmlPath, pdfPath, "--format=a4", ...pdfSourceFlags, ...allowFacts.map(fact => `--allow-fact=${fact}`)], {
       cwd: WORKSPACE_ROOT,
       signal,
       timeoutMs: 120_000
@@ -593,7 +634,7 @@ export async function renderAndValidateTailoredCv(
   fullJd: string,
   aiResult: AiTailorResult,
   onProgress?: (stage: string) => void,
-  options: { operationId?: string; signal?: AbortSignal } = {}
+  options: { operationId?: string; signal?: AbortSignal; adjacentMode?: string } = {}
 ): Promise<{
   jobDir: string;
   metadata: TailorJobMetadata;
@@ -603,10 +644,15 @@ export async function renderAndValidateTailoredCv(
 }> {
   const candidate = loadDashboardProfile();
   const parsedMaster = loadParsedMasterCv();
+  const adjacentMode = resolveAdjacentMode(options.adjacentMode || aiResult._adjacentMode);
+  const cvText = fs.readFileSync(path.join(WORKSPACE_ROOT, "cv.md"), "utf8");
+  const adjacentPlan = aiResult._adjacentPlan || planAdjacentSkills(fullJd, cvText, adjacentMode);
 
   domainConsistencyValidation(aiResult, job, fullJd);
   const enforced = enforceDomainConsistency(aiResult, job, fullJd);
   aiResult = { ...enforced.result, experience: canonicalTailoredExperience(enforced.result.experience, parsedMaster.experience) };
+  assertProjectNamesAreNotEmployers(aiResult.projects, parsedMaster.experience);
+  if (adjacentMode !== "off") validateAdjacentSkills(aiResult, cvText, adjacentPlan);
 
   // Keep all artifacts in the company/normalized-role folder.
   const outputsBase = path.join(WORKSPACE_ROOT, "outputs");
@@ -632,6 +678,16 @@ export async function renderAndValidateTailoredCv(
     JSON.stringify(aiResult.tailoring_diff, null, 2),
     "utf8"
   );
+  const adjacentArtifact = {
+    score: adjacentPlan.score,
+    added: aiResult.tailoring_diff.adjacent_skills_added || [],
+    addTooling: adjacentPlan.addTooling,
+    addStack: adjacentPlan.addStack,
+    skippedForeign: adjacentPlan.skippedForeign,
+    skippedOverCap: adjacentPlan.skippedOverCap,
+    prep: adjacentPlan.prep
+  };
+  if (adjacentMode !== "off") fs.writeFileSync(path.join(stagingDir, "adjacent-skills.json"), JSON.stringify(adjacentArtifact, null, 2), "utf8");
 
   const payload = {
     lang: candidate.outputLanguage,
@@ -673,12 +729,12 @@ export async function renderAndValidateTailoredCv(
   let pageCount = 0;
   let metadata!: TailorJobMetadata;
   try {
-    ({ pageCount } = await renderHtmlAndPdf(tmpJsonPath, localHtmlPath, localPdfPath, onProgress, options.signal));
+    ({ pageCount } = await renderHtmlAndPdf(tmpJsonPath, localHtmlPath, localPdfPath, onProgress, options.signal, [...adjacentPlan.addTooling, ...adjacentPlan.addStack]));
     assertNotCancelled();
 
   const llmTailoringExecuted = aiResult._fallbackUsed !== true && Boolean(aiResult._providerId);
   metadata = {
-    inputFingerprint: cvFingerprint(job, fullJd),
+    inputFingerprint: cvFingerprint(job, fullJd, adjacentMode),
     jobId: job.id,
     company: job.company,
     role: job.title,
@@ -698,6 +754,7 @@ export async function renderAndValidateTailoredCv(
     primaryDomain: aiResult.primary_domain || enforced.classified.primary,
     secondaryDomains: aiResult.secondary_domains || enforced.classified.secondary,
     tailoringDiff: aiResult.tailoring_diff,
+    ...(adjacentMode === "off" ? {} : { adjacentSkills: { ...adjacentPlan, added: adjacentArtifact.added } }),
     htmlPath: outputHtmlPath,
     pdfPath: outputPdfPath
   };
@@ -706,10 +763,13 @@ export async function renderAndValidateTailoredCv(
     if (onProgress) onProgress("Saving Artifacts");
     assertNotCancelled();
 
-    const files = ["job-description.md", "tailored-cv.md", "tailored-cv.html", "tailored-cv.pdf", "tailoring-diff.json", "metadata.json"]
+    const artifactNames = ["job-description.md", "tailored-cv.md", "tailored-cv.html", "tailored-cv.pdf", "tailoring-diff.json", "metadata.json"];
+    if (adjacentMode !== "off") artifactNames.splice(-1, 0, "adjacent-skills.json");
+    const files = artifactNames
       .map((name) => ({ staged: path.join(stagingDir, name), destination: path.join(jobDir, name) }));
     files.push({ staged: localPdfPath, destination: outputPdfPath });
     publishGenerationArtifacts(files, operationId, options.signal);
+    if (adjacentMode === "off") fs.rmSync(path.join(jobDir, "adjacent-skills.json"), { force: true });
   } finally {
     fs.rmSync(stagingDir, { recursive: true, force: true });
     const tmpRoot = path.join(jobDir, ".tmp");

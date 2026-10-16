@@ -81,7 +81,7 @@ export const PROJECT_CATALOG = {
     {
       name: "Glasy.pl",
       aliases: ["glasy.pl", "glasy"],
-      tech: "Shopify, Liquid, JavaScript, CSS",
+      tech: "Shopify, CSS, Liquid, JavaScript",
       description: "Custom Shopify theme built from scratch for a live eyewear store: homepage, collections, header/footer, and Admin-configurable sections."
     },
     {
@@ -155,16 +155,10 @@ export const PROJECT_CATALOG = {
   ],
   magento: [
     {
-      name: "HUBER SE",
-      aliases: ["huber se", "huber"],
+      name: "shop.huber-se.com",
+      aliases: ["shop.huber-se.com", "huber storefront"],
       tech: "Magento 2, Hyvä Theme, Hyvä CMS, Alpine.js, Tailwind CSS",
-      description: "Lead frontend on the rebuild from Adobe Commerce headless to Magento Open Source with Hyvä Theme, Hyvä Checkout, and Hyvä CMS. Catalog pages reach Lighthouse 99–100."
-    },
-    {
-      name: "Lufed IT",
-      aliases: ["lufed it", "lufed"],
-      tech: "Magento 2, Hyvä Theme, Alpine.js, Tailwind CSS",
-      description: "Magento 2 / Hyvä migration and reusable CMS/component system with ownership of PLP, PDP, Cart, Checkout, and Account."
+      description: "Full frontend development of the Magento Open Source rebuild with Hyvä Theme, Hyvä Checkout, and Hyvä CMS. Catalog pages reach Lighthouse 99–100."
     },
     {
       name: "housetipster.com",
@@ -206,7 +200,7 @@ export const PROJECT_CATALOG = {
       name: "British American Tobacco",
       aliases: ["british american tobacco", "bat", "myglo", "myglo.com"],
       tech: "Magento 2 Enterprise",
-      description: "Four BAT storefronts. On myglo (myglo.com/de/de), took part in a full redesign with the team, including frontend decisions on design, logic, and architecture. The other markets: support and fixes."
+      description: "Four BAT storefronts. Contributed to frontend architecture, design alignment, and implementation decisions on the German flagship myglo redesign. The other markets: support and fixes."
     },
     {
       name: "catering24.co.uk",
@@ -221,16 +215,10 @@ export const PROJECT_CATALOG = {
       description: "Full Magento redesign: new pages, including category pages and checkout, plus CMS handover and training for the client's editors."
     },
     {
-      name: "3MK Protection",
-      aliases: ["3mk protection", "3mk.pl", "3mk"],
+      name: "3mk.pl",
+      aliases: ["3mk.pl", "3mk storefront"],
       tech: "Magento 2",
       description: "Built the Magento storefront from scratch with the team: category pages, checkout, and other storefront pages, plus custom CMS page templates for the SEO team to reuse. Trained the client on the CMS."
-    },
-    {
-      name: "ORBA",
-      aliases: ["orba"],
-      tech: "Magento 2",
-      description: "Front-end optimization, performance improvements, and user experience enhancements on a cosmetics Magento storefront."
     }
   ]
 };
@@ -253,7 +241,7 @@ export const DOMAIN_PROJECT_POOLS = {
   FULLSTACK_TYPESCRIPT_NODE: PROJECT_CATALOG.react,
   FRONTEND_LEAD: [
     PROJECT_CATALOG.magento[0],
-    PROJECT_CATALOG.magento[1],
+    PROJECT_CATALOG.magento[7],
     PROJECT_CATALOG.react[0],
     PROJECT_CATALOG.react[1],
     PROJECT_CATALOG.react[3]
@@ -269,7 +257,7 @@ export const DOMAIN_PROJECT_POOLS = {
     PROJECT_CATALOG.magento[0],
     PROJECT_CATALOG.magento[1],
     PROJECT_CATALOG.react[0],
-    PROJECT_CATALOG.magento[2]
+    PROJECT_CATALOG.magento[7]
   ],
   GENERAL_FRONTEND: [
     ...PROJECT_CATALOG.react,
@@ -667,7 +655,7 @@ export function validateDomainConsistency({ primaryDomain, projects = [], jdText
 
 const PINNED_PROJECTS = {
   SHOPIFY: ["Glasy.pl", "Pixel25", "Warmsome", "Berg's"],
-  MAGENTO_HYVA: ["HUBER SE", "3MK Protection", "British American Tobacco", "solar.com.pl"],
+  MAGENTO_HYVA: ["shop.huber-se.com", "3mk.pl", "British American Tobacco", "solar.com.pl"],
   REACT_FRONTEND: ["copernicspace.com", "ponadczasowi.pl", "hrk.pl", "carneoo.de"],
   FULLSTACK_TYPESCRIPT_NODE: ["copernicspace.com", "ponadczasowi.pl", "hrk.pl", "carneoo.de"]
 };

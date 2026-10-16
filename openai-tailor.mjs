@@ -20,6 +20,7 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { getCareerOpsRoot } from './path-resolver.mjs';
+import { planAdjacentSkills, resolveAdjacentMode } from './server/adjacentSkills.mjs';
 import * as yaml from 'js-yaml';
 
 try {
@@ -67,6 +68,7 @@ if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
     --url <base>     OpenAI-compatible base URL, including any /v1
                      (env OPENAI_BASE_URL, default https://api.openai.com/v1)
     --key <key>      API key             (env OPENAI_API_KEY)
+    --adjacent <mode> off, conservative, or normal (default: CAREER_OPS_ADJACENT or normal)
     --help           Show this help
 
   ENV
@@ -84,6 +86,7 @@ let reportPath = '';
 let modelName  = process.env.OPENAI_MODEL || 'gpt-4o'; // Tailoring needs a smarter model default than eval
 let baseUrl    = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
 let apiKey     = process.env.OPENAI_API_KEY || '';
+let adjacentMode = process.env.CAREER_OPS_ADJACENT || 'normal';
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--jd' && args[i + 1]) {
@@ -96,8 +99,13 @@ for (let i = 0; i < args.length; i++) {
     baseUrl = args[++i].replace(/\/$/, '');
   } else if (args[i] === '--key' && args[i + 1]) {
     apiKey = args[++i];
+  } else if (args[i] === '--adjacent') {
+    adjacentMode = args[i + 1] && !args[i + 1].startsWith('--') ? args[++i] : 'normal';
+  } else if (args[i].startsWith('--adjacent=')) {
+    adjacentMode = args[i].slice('--adjacent='.length);
   }
 }
+adjacentMode = resolveAdjacentMode(adjacentMode);
 
 if (!jdPath || !reportPath) {
   console.error('❌  Both --jd and --report are required. Run with --help for usage.');
@@ -193,6 +201,16 @@ const pdfModeLogic   = readFile(PATHS.pdfMode, 'modes/pdf.md', false);
 const cvContent      = readFile(PATHS.cv, 'cv.md', true);
 const profileContent = readFile(PATHS.profile, 'config/profile.yml', true);
 const templateHtml   = readFile(PATHS.template, 'templates/cv-template.html', true);
+const adjacentPlan = planAdjacentSkills(jdText, cvContent, adjacentMode);
+const adjacentAllowed = [...adjacentPlan.addTooling.map(skill => `${skill} (tooling)`), ...adjacentPlan.addStack.map(skill => `${skill} (stack)`)];
+const adjacentRules = adjacentMode === 'off' ? '' : `
+
+═══════════════════════════════════════════════════════
+ALLOWED ADJACENT SKILLS FOR THIS VACANCY
+═══════════════════════════════════════════════════════
+${adjacentAllowed.length ? adjacentAllowed.map(skill => `- ${skill}`).join('\n') : '- none'}
+Only these listed exceptions may be added. Tooling belongs only in Technical Skills, or in at most one genuinely related existing experience bullet. Stack items belong only on a separate \"Familiar with\" skills line. Never place them in the summary or projects, attach years/metrics, or create a new bullet.
+`;
 
 // ---------------------------------------------------------------------------
 // Build system prompt
@@ -233,7 +251,7 @@ ${profileContent}
 ═══════════════════════════════════════════════════════
 IMPORTANT OPERATING RULES FOR THIS SESSION
 ═══════════════════════════════════════════════════════
-1. NEVER invent skills, metrics, or experience the candidate does not have.
+1. ${adjacentMode === 'off' ? 'NEVER invent skills, metrics, or experience the candidate does not have.' : 'NEVER invent skills beyond the ALLOWED ADJACENT SKILLS list, metrics, or experience the candidate does not have.'}${adjacentRules}
 2. Inject keywords naturally by reformulating the real experience using JD vocabulary.
 3. Apply the 6-second clarity gate: strongest matching evidence first.
 4. Replace all {{PLACEHOLDERS}} in the HTML Template exactly as instructed.
@@ -343,7 +361,8 @@ try {
   const reportNumMatch = reportFilename.match(/^(\d+)-/);
   const reportNum = reportNumMatch ? reportNumMatch[1] : '001';
 
-  console.log(`\n📄  Next step (generate PDF):\n    node generate-pdf.mjs output/${filename} output/${pdfFilename} --format=letter --report=${reportNum}\n`);
+  const adjacentFactFlags = [...adjacentPlan.addTooling, ...adjacentPlan.addStack].map(skill => ` --allow-fact=${JSON.stringify(skill)}`).join('');
+  console.log(`\n📄  Next step (generate PDF):\n    node generate-pdf.mjs output/${filename} output/${pdfFilename} --format=letter --report=${reportNum}${adjacentFactFlags}\n`);
 
 } catch (err) {
   console.warn(`⚠️   Could not save HTML: ${err.message}`);

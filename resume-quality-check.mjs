@@ -371,6 +371,7 @@ export function auditResumeHtml(html, options = {}) {
     const factResult = verifyFacts(html, {
       cwd: root,
       ...(options.factSourcePaths?.length ? { sourcePaths: options.factSourcePaths } : {}),
+      ...(options.allowFacts?.length ? { allowFacts: options.allowFacts } : {}),
     });
     add(checks, 'factual_metrics', factResult.invented.length ? 'block' : 'pass',
       factResult.invented.length ? `unsupported: ${factResult.invented.join(', ')}` : '');

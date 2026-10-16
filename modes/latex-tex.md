@@ -41,7 +41,7 @@ latex:
 5. Tailor **only** the `slots[].text` values for JD fit (same ethics as `modes/latex.md` / `pdf`):
    - Extract 15–20 JD keywords
    - Reorder bullets by relevance (reorder patch list order if needed; patch ids stay stable)
-   - Inject keywords into existing achievements — **NEVER invent skills**
+   - Inject keywords into existing achievements — **NEVER invent skills beyond the adjacent-skills plan below**
    - If `cv.md` exists, cross-check claims against it; omit anything not backed by in-scope sources
 6. Write patches file:
 
@@ -65,7 +65,8 @@ latex:
 Same as `modes/latex.md` and `modes/pdf.md`:
 
 - Keywords get **reformulated, never fabricated**
-- Never add tools, skills, or metrics the candidate does not already have in the source `.tex` or `cv.md`
+- Resolve adjacent mode from the request or `CAREER_OPS_ADJACENT` (default `normal`) and run `node server/adjacentSkills.mjs <jd-file> --mode={off|conservative|normal}`. Mode `off` preserves the old strict rule. Otherwise, only `addTooling`/`addStack` may be added: tooling only in Skills or at most one genuinely related existing bullet; stack only on a separate `Familiar with` skills line; never in summary/projects or with years/metrics; never create a bullet. Unknown/foreign skills remain forbidden.
+- Never add other tools, skills, or metrics the candidate does not already have in the source `.tex` or `cv.md`
 - Preserve inline LaTeX markup inside bullets when possible; when rewriting, output **plain text** in patch JSON (the patch script escapes special characters)
 - Do **not** rewrite preamble, macro definitions, section titles, dates, company names, or job titles unless the user explicitly asks
 

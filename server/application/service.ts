@@ -134,7 +134,7 @@ export function startApplications(selection: any, options: any = {}) {
           const supported = /poland|polska/i.test(country) && ['POLAND', 'EUROPE', 'EU_EEA', 'EMEA', 'WORLDWIDE'].includes(eligibility);
           if (!supported && !allowed?.includes(eligibility)) throw new ManualApplication(`Candidate eligibility unconfirmed: ${eligibility}`);
           update({ result: 'CV_GENERATING' });
-          const cv = await ensureTailoredCv(job, jd, () => careerOps.generateTailoredCv(job, { providerId: options.providerId, model: options.model, fullJd: jd }, { operationId: attempt.attemptId, signal, updateStage }));
+          const cv = await ensureTailoredCv(job, jd, () => careerOps.generateTailoredCv(job, { providerId: options.providerId, model: options.model, fullJd: jd, adjacentMode: options.adjacentMode }, { operationId: attempt.attemptId, signal, updateStage }), false, options.adjacentMode);
           update({ result: 'CV_READY', cvPath: cv.cvPath, cvStatus: cv.status, cvValidation: cv.validation });
           return cv;
         },

@@ -1160,6 +1160,7 @@ async function generatePDF() {
   const args = process.argv.slice(2);
   let skipFactCheck = false;
   const factSourcePaths = [];
+  const allowFacts = [];
   let jdPath = '', vacancyRole = '', primaryDomain = '';
 
   // Parse arguments
@@ -1178,6 +1179,8 @@ async function generatePDF() {
       maxPages = Number(maxPagesInput);
     } else if (arg.startsWith('--source=')) {
       factSourcePaths.push(arg.slice('--source='.length));
+    } else if (arg.startsWith('--allow-fact=')) {
+      allowFacts.push(arg.slice('--allow-fact='.length));
     } else if (arg.startsWith('--jd=')) {
       jdPath = arg.slice('--jd='.length);
     } else if (arg.startsWith('--role=')) {
@@ -1310,6 +1313,7 @@ async function generatePDF() {
       role: vacancyRole,
       domain: primaryDomain,
       factSourcePaths,
+      allowFacts,
       skipFactCheck,
     });
     quality.assertResumeQuality(qualityReport);

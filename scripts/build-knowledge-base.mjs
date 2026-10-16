@@ -145,29 +145,16 @@ const magentoHyvaContent = `# Domain Knowledge: Magento 2, Hyvä Theme & E-Comme
 
 ## Verified Commercial Magento 2 & Hyvä Projects
 
-### 1. HUBER SE (Direct Client — Germany)
-- **Role:** Lead Front-End Developer — Magento 2 / Hyvä (Jun 2026 – Present)
-- **Context:** Direct client customer-facing Magento 2 / Hyvä e-commerce platform.
+### 1. shop.huber-se.com
+- **Context:** Customer-facing Magento 2 / Hyvä e-commerce platform.
 - **Verified Scope & Deliverables:**
-  - Leading frontend delivery for a modern Magento 2 / Hyvä storefront.
-  - Primary frontend technical contact for client management, evaluating feasibility and architecture.
-  - Translating business, SEO, and marketing requirements into technical frontend tasks and sprints.
+  - Full frontend development of the rebuild from Adobe Commerce headless to Magento Open Source with Hyvä Theme, Hyvä Checkout, and Hyvä CMS. Catalog pages reach Lighthouse 99–100.
   - Building Hyvä CMS structures, reusable components, multi-language translations, and frontend enhancements.
   - Implementing features across CMS landing pages, PLP, PDP, Cart, Checkout, and Customer Account.
+  - Designed and implemented Cart Share end to end with PHP, Alpine.js, and Tailwind CSS.
   - Driving improvements in UX consistency, performance (Core Web Vitals), accessibility, technical SEO, and code maintainability.
-  - Coordinating closely with backend developers, SEO agencies, and client stakeholders.
 
-### 2. Lufed IT
-- **Role:** Senior Front-End Developer (Jan 2026 – Jun 2026)
-- **Context:** E-Commerce product platform environment.
-- **Verified Scope & Deliverables:**
-  - Led frontend architecture and delivery for a high-traffic Magento 2 storefront using Hyvä.
-  - Owned frontend implementation across PLP, PDP, Cart, Checkout, and Customer Account.
-  - Drove full migration from legacy Magento 2 Enterprise to Hyvä Theme.
-  - Built a reusable CMS and component system for content editors and marketing teams.
-  - Collaborated directly with client leadership and SEO teams to optimize Core Web Vitals and platform conversion.
-
-### 3. For Better Future Software House (Magento Client Engagements)
+### 2. For Better Future Software House (Magento Client Engagements)
 - **Role:** Senior Front-End Developer (Sep 2020 – Feb 2026)
 - **Context:** Managed frontend architecture across 16+ production e-commerce platforms.
 - **Verified Projects:**
@@ -178,15 +165,15 @@ const magentoHyvaContent = `# Domain Knowledge: Magento 2, Hyvä Theme & E-Comme
   - **hbsgroup.net:** Magento 2 version upgrades, new page layouts, and business logic defect fixes.
   - **paypair.com:** Payment solution frontend improvements, bug fixes, new features, and UX enhancements.
 
-### 4. Cloudflight (Enterprise Magento Delivery)
+### 3. Cloudflight (Enterprise Magento Delivery)
 - **Role:** Front-End Developer (Jul 2022 – Oct 2024)
 - **Context:** Supporting enterprise e-commerce delivery across ~9 Magento 2 storefronts.
 - **Verified Projects:**
-  - **British American Tobacco (4 storefronts):** Product pages, checkout flows, customer account areas, and multi-market storefront delivery.
+  - **British American Tobacco (4 storefronts):** Contributed to frontend architecture, design alignment, and implementation decisions on the German flagship myglo redesign. The other markets: support and fixes.
   - **catering24.co.uk:** Custom theme and CMS-driven storefront with advanced commercial integrations.
   - **solar.com.pl:** Custom storefront with specialized catalog integrations and custom UI components.
 
-### 5. 3MK Protection (3mk.pl)
+### 4. 3mk.pl
 - **Role:** Front-End Developer (Mar 2024 – May 2024)
 - **Context:** Mobile accessories manufacturer e-commerce platform.
 - **Verified Scope & Deliverables:**
@@ -194,18 +181,11 @@ const magentoHyvaContent = `# Domain Knowledge: Magento 2, Hyvä Theme & E-Comme
   - Delivered Homepage, Category/PLP, Cart, and custom CMS components.
   - Engineered custom UI elements focused on UX, responsive mobile ergonomics, and checkout conversion.
 
-### 6. ORBA
-- **Role:** Frontend Developer (Jan 2020 – Apr 2020)
-- **Context:** Cosmetics industry e-commerce platform.
-- **Verified Scope & Deliverables:**
-  - Developed frontend features specializing in Magento 2.
-  - Optimized site responsiveness, performance, and user purchasing journey.
-
 ---
 
 ## Tailoring Rules for Magento / Hyvä Vacancies
 - **Headline Priority:** \`Lead / Senior Front-End Developer | Magento 2 | Hyvä | E-commerce Architecture\`
-- **Project Selection:** Choose 2–4 of the above verified projects (\`HUBER SE\`, \`housetipster.com\`, \`edycja.pl\`, \`British American Tobacco\`, \`3mk.pl\`, \`catering24.co.uk\`) based on the client's industry and technical scope.
+- **Project Selection:** Choose 2–4 of the above verified projects (\`shop.huber-se.com\`, \`housetipster.com\`, \`edycja.pl\`, \`British American Tobacco\`, \`3mk.pl\`, \`catering24.co.uk\`) based on the client's industry and technical scope.
 - **Skill Ordering:** Prioritize Magento 2, Hyvä Theme, Hyvä CMS, Alpine.js, Tailwind CSS, XML/Layout, PHTML, Core Web Vitals, and Technical SEO.
 `;
 
@@ -328,21 +308,19 @@ This document acts as the definitive, multi-domain project registry for Career-O
 
 ## Domain 2: Magento 2 & Hyvä Enterprise Storefronts
 
-| Project / Client | Industry / Scope | Technology Stack | Key Scope & Deliverables | Primary Context |
+| Project | Industry / Scope | Technology Stack | Key Scope & Deliverables | Primary Context |
 |---|---|---|---|---|
-| **HUBER SE** | Industrial / Direct Client | Magento 2, Hyvä Theme, Hyvä CMS, Alpine.js, Tailwind | Lead frontend delivery; direct client liaison, business/SEO requirements translation, CMS structures, PLP/PDP/Cart/Checkout/Account flows, Core Web Vitals, accessibility. | HUBER SE (Jun 2026 – Present) |
-| **Lufed IT** | E-Commerce Product Platform | Magento 2, Hyvä Theme, Alpine.js, Tailwind | Senior frontend architect; full PLP/PDP/Cart/Checkout ownership, Enterprise to Hyvä migration, reusable CMS component system. | Lufed IT (Jan 2026 – Jun 2026) |
+| **shop.huber-se.com** | Industrial E-Commerce | Magento 2, Hyvä Theme, Hyvä CMS, Alpine.js, Tailwind | Full frontend development across PLP, PDP, Cart, Checkout, Account, and CMS, plus performance and Cart Share. | HUBER SE / Lufed IT (Jan 2026 – Present) |
 | **housetipster.com** | Home & Interior Marketplace | Magento 2, XML Layout, PHTML, JS | Full Magento 2 build from scratch; Homepage, PLP, PDP, CMS pages, Account area, custom components. | For Better Future (Sep 2020 – Feb 2026) |
 | **edycja.pl** | Publishing E-Commerce | Magento 2, Custom Theme | Store built from scratch; custom theme implementation, advanced UI, checkout flow. | For Better Future (Sep 2020 – Feb 2026) |
 | **fmic.pl** | Automotive Tuning Parts | Magento 2, Performance | Business logic enhancements, performance optimizations, catalog filtering. | For Better Future (Sep 2020 – Feb 2026) |
 | **dreamroots.pl** | Health & Wellness Store | Magento 2 | Performance optimization, multi-language translations, new catalog pages. | For Better Future (Sep 2020 – Feb 2026) |
 | **hbsgroup.net** | B2B E-Commerce | Magento 2 | Version updates, new landing pages, logic fixes. | For Better Future (Sep 2020 – Feb 2026) |
 | **paypair.com** | FinTech / Payments | Magento 2 Integration | Bug fixes, new features, user experience improvements. | For Better Future (Sep 2020 – Feb 2026) |
-| **British American Tobacco** | Multi-Market (4 Stores) | Magento 2 Enterprise | Product pages, checkout flows, customer account areas, multi-market international delivery. | Cloudflight (Jul 2022 – Oct 2024) |
+| **British American Tobacco** | Multi-Market (4 Stores) | Magento 2 Enterprise | Contributed to frontend architecture, design alignment, and implementation decisions on the German flagship myglo redesign. The other markets: support and fixes. | Cloudflight (Jul 2022 – Oct 2024) |
 | **catering24.co.uk** | Commercial Catering Supplies | Magento 2 | Custom storefront with advanced commercial integrations, CMS-driven pages. | Cloudflight (Jul 2022 – Oct 2024) |
 | **solar.com.pl** | Fashion & Retail | Magento 2 | Custom storefront with specialized catalog features and custom UI components. | Cloudflight (Jul 2022 – Oct 2024) |
-| **3MK Protection (3mk.pl)** | Mobile Accessories | Magento 2 | Built storefront from scratch; Homepage, Category, Cart, custom UI components with UX/conversion focus. | 3MK Protection (Mar 2024 – May 2024) |
-| **ORBA** | Cosmetics E-Commerce | Magento 2 | Front-end optimization, performance improvements, user experience enhancements. | ORBA (Jan 2020 – Apr 2020) |
+| **3mk.pl** | Mobile Accessories | Magento 2 | Built storefront from scratch; Homepage, Category, Cart, custom UI components with UX/conversion focus. | 3MK Protection (Mar 2024 – May 2024) |
 
 ---
 
@@ -350,7 +328,7 @@ This document acts as the definitive, multi-domain project registry for Career-O
 
 | Project | URL & Status | Domain | Technology Stack | Key Scope & Deliverables | Primary Context |
 |---|---|---|---|---|---|
-| **Glasy.pl** | Live — https://glasy.pl/ | Eyewear & Optics | Shopify, Liquid, JS, CSS | Custom homepage elements, collection/PLP improvements, custom header & footer, theme customization. | For Better Future (Sep 2020 – Feb 2026) |
+| **Glasy.pl** | Live — https://glasy.pl/ | Eyewear & Optics | Shopify, CSS, Liquid, JavaScript | Custom homepage elements, collection/PLP improvements, custom header & footer, theme customization. | For Better Future (Sep 2020 – Feb 2026) |
 | **Ascent** | Dev Store — https://ascent-development.myshopify.com/ | D2C Brand | Shopify, Liquid, JSON Templates | Custom homepage from Figma designs, reusable Liquid sections/blocks, Shopify Admin configuration. | For Better Future (Sep 2020 – Feb 2026) |
 | **Warmsome** | Live — https://warmsome.com/ | Home Goods | Shopify, Liquid, Responsive UI | Custom storefront sections, responsive components, theme development. | For Better Future (Sep 2020 – Feb 2026) |
 | **Pixel25** | In Development | Automotive SaaS | Shopify, Liquid, Custom Apps | Automotive storefront with custom Liquid sections and application-style UI components. | For Better Future (Sep 2020 – Feb 2026) |
@@ -360,11 +338,12 @@ This document acts as the definitive, multi-domain project registry for Career-O
 ---
 
 ## Project Selection Guidelines for Tailored CVs
-1. **Never dump all projects into one CV.** Select approximately 2–4 projects strictly relevant to the target role.
-2. **For React / Next.js roles:** Highlight \`ponadczasowi.pl\`, \`copernicspace.com\`, \`hrk.pl\`, \`pmicareers.pl\`.
-3. **For Magento / Hyvä roles:** Highlight \`HUBER SE\`, \`housetipster.com\`, \`British American Tobacco\`, \`3mk.pl\`, \`edycja.pl\`.
-4. **For Shopify roles:** Highlight \`Glasy.pl\`, \`Ascent\`, \`Warmsome\`, \`Berg's\`, \`Pixel25\`.
-5. **For General Frontend / Tech Lead roles:** Combine \`HUBER SE\` (leadership, direct client communication, e-commerce scale) with \`ponadczasowi.pl\` or \`copernicspace.com\` (React/Next.js architecture).
+1. **Never use an employer name as a project title.** Use the concrete site or product name; never invent employer-derived platform names.
+2. **Never dump all projects into one CV.** Select approximately 2–4 projects strictly relevant to the target role.
+3. **For React / Next.js roles:** Highlight \`ponadczasowi.pl\`, \`copernicspace.com\`, \`hrk.pl\`, \`pmicareers.pl\`.
+4. **For Magento / Hyvä roles:** Highlight \`shop.huber-se.com\`, \`housetipster.com\`, \`British American Tobacco\`, \`3mk.pl\`, \`edycja.pl\`.
+5. **For Shopify roles:** Highlight \`Glasy.pl\`, \`Ascent\`, \`Warmsome\`, \`Berg's\`, \`Pixel25\`.
+6. **For General Frontend / Tech Lead roles:** Combine \`shop.huber-se.com\` (end-to-end frontend ownership and e-commerce scale) with \`ponadczasowi.pl\` or \`copernicspace.com\` (React/Next.js architecture).
 `;
 
 // 5. ai-agentic-development.md

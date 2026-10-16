@@ -83,6 +83,26 @@ try {
     fail(`nofluffjobs.fetch() should use POST and redirect:"error", got ${JSON.stringify(capturedOpts)}`);
   }
 
+  const variants = await nfj.fetch(
+    { name: 'NoFluffJobs', careers_url: 'https://nofluffjobs.com/pl', max_pages: 1 },
+    {
+      transport: 'http',
+      fetchJson: async () => ({
+        postings: [
+          { title: 'Magento Lead', name: 'ExampleCo', url: 'magento-lead-remote', posted: 1781270000000, fullyRemote: true, location: { places: [{ city: 'Kraków' }, { city: 'Warszawa' }] } },
+          { title: 'Magento Lead', name: 'ExampleCo', url: 'magento-lead-warszawa', posted: 1781270000000, fullyRemote: true, location: { places: [{ city: 'Warszawa' }, { city: 'Kraków' }] } },
+        ],
+        totalPages: 1,
+      }),
+      fetchText: async () => '',
+    },
+  );
+  if (variants.length === 1 && variants[0].url.endsWith('-remote')) {
+    pass('nofluffjobs.fetch() collapses regional URL variants of one posting');
+  } else {
+    fail(`nofluffjobs.fetch() kept regional duplicates: ${JSON.stringify(variants)}`);
+  }
+
   let ssrfRejected = false;
   try {
     await nfj.fetch({ name: 'Evil', careers_url: 'https://evil.example/pl' }, { transport: 'http', fetchJson: async () => fakeResponse, fetchText: async () => '' });

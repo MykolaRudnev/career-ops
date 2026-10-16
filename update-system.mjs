@@ -313,6 +313,7 @@ const SYSTEM_PATHS = [
   'calibrate.mjs',
   'upskill.mjs',
   'skill-extract.mjs',
+  'server/adjacentSkills.mjs',
   'intake.mjs',
   'stats.mjs',
   'detect-reposts.mjs',
@@ -372,6 +373,7 @@ const SYSTEM_PATHS = [
   'dashboard/',
   'templates/',
   'config/cv-facts.example.json',
+  'config/adjacent-skills.example.json',
   'fonts/',
   'examples/',
   'config/profile.example.yml',
@@ -518,6 +520,7 @@ const BOOTSTRAP_PATHS = [
 export const USER_PATHS = [
   'cv.md',
   'config/profile.yml',
+  'config/adjacent-skills.json',
   'modes/_profile.md',
   'modes/_custom.md',
   'modes/_brief.md',

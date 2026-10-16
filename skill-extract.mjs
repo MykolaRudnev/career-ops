@@ -26,6 +26,7 @@ export const SKILL_TOKENS = [
   'Kotlin', 'Swift', 'Scala', 'Elixir', 'C\\+\\+', 'C#', '\\.NET', 'SQL',
   // Frontend / frameworks
   'React Native', 'React', 'Angular', 'Vue\\.?js', 'Svelte', 'Next\\.?js',
+  'Nx',
   'Django', 'Flask', 'FastAPI', 'Rails', 'Laravel', 'Symfony', 'Spring',
   'Node\\.?js', 'NodeJS',
   // Data stores
@@ -203,6 +204,7 @@ export const DISPLAY = Object.fromEntries(
 // "cv skill never appears as gap" acceptance test rewards exactly that
 // failure mode. Every entry here maps spellings of the SAME skill.
 export const CANONICAL = {
+  'nx': 'Nx',
   'k8s': 'Kubernetes',
   'golang': 'Go',
   'postgres': 'PostgreSQL',
