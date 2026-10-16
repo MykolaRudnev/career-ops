@@ -39,6 +39,11 @@ test('employer names cannot be reused or dressed up as project titles', () => {
   assert.doesNotThrow(() => assertProjectNamesAreNotEmployers([{ name: 'shop.huber-se.com' }], experience));
   assert.throws(() => assertProjectNamesAreNotEmployers([{ name: 'Lufed IT Product System' }], experience), /employer names cannot be project titles/);
   assert.throws(() => assertProjectNamesAreNotEmployers([{ name: 'HUBER SE Enterprise Platform' }], experience), /employer names cannot be project titles/);
+  // Founder products may share company and project name.
+  assert.doesNotThrow(() => assertProjectNamesAreNotEmployers(
+    [{ name: 'Claspwell' }],
+    [{ company: 'Claspwell', role: 'Founder & Product Engineer' }]
+  ));
 });
 
 test('professional development preserves every factual entry in stable newest-first order', () => {

@@ -78,7 +78,7 @@ Source: https://www.mrudnev.com/case-studies, visible project cards inspected 20
 
 - **Doppler Manufaktur:** Magento 2 store; JavaScript/XML feature delivery, custom elements and bug fixes. Portfolio links https://doppler-manufaktur.com/.
 - **bragan.net:** Automotive parts store; Magento 2 updates and bug fixes with JavaScript/XML. Current linked-site availability was not verified.
-- Excellent has no unambiguous linked business identity, so it is not selectable. Claspwell founder/backend claims are not imported into the canonical career history.
+- Excellent has no unambiguous linked business identity, so it is not selectable. Claspwell is canonical in cv.md (Founder & Product Engineer); required near the top for product/lead roles, optional and shorter for pure Magento frontend vacancies.
 
 ## Tailoring Rules for Magento / Hyvä Vacancies
 - **PRIMARY DOMAIN:** `MAGENTO_HYVA`

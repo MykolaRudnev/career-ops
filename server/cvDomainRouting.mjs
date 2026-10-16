@@ -56,7 +56,8 @@ const REACT_ALIASES = [
   "hrk.pl", "hrk",
   "pmicareers.pl", "pmicareers",
   "learningspace.app", "learningspace",
-  "carneoo.de", "carneoo"
+  "carneoo.de", "carneoo",
+  "claspwell"
 ];
 
 const MAGENTO_ALIASES = [
@@ -72,8 +73,59 @@ const MAGENTO_ALIASES = [
   "catering24.co.uk", "catering24",
   "solar.com.pl", "solar.com",
   "3mk protection", "3mk.pl", "3mk",
-  "orba"
+  "orba",
+  "claspwell"
 ];
+
+/** Canonical Claspwell card — product-ownership vs short frontend wording. */
+export const CLASPWELL_PROJECT = {
+  name: "Claspwell",
+  aliases: ["claspwell"],
+  tech: "Magento 2, Hyvä, Next.js, TypeScript, Alpine.js, Payload CMS",
+  description:
+    "Founder & Product Engineer: catalog-aware AI sales assistant for Magento 2/Hyvä stores end to end; syncs catalog data; owned discovery, scope, pricing (€99/mo), chat UX, Magento integration, 466 tests, onboarding, and GTM.",
+  shortDescription:
+    "Own Magento 2 / Hyvä AI sales assistant: category-first catalog chat, Alpine storefront widget, and a production Next.js site with Payload CMS."
+};
+
+export function claspwellProjectCard({ productOwnership = true } = {}) {
+  return {
+    name: CLASPWELL_PROJECT.name,
+    aliases: CLASPWELL_PROJECT.aliases,
+    tech: CLASPWELL_PROJECT.tech,
+    description: productOwnership ? CLASPWELL_PROJECT.description : CLASPWELL_PROJECT.shortDescription
+  };
+}
+
+/**
+ * Product / lead roles that must surface Claspwell near the top with
+ * product-ownership wording. Pure frontend titles without these signals
+ * keep Claspwell optional and short.
+ */
+export function isProductOrLeadRole(title = "", jd = "") {
+  const text = `${title}\n${jd}`;
+  const titleLower = normalize(title);
+  if (/\bproduct engineer\b|\bproduct owner\b|\btech(?:nical)? lead\b|\bfounding (?:engineer|product)\b/i.test(text)) {
+    return true;
+  }
+  if (/\b(frontend|front-end|engineering)\s+lead\b/i.test(text)) return true;
+  if (/\blead\b/.test(titleLower) && /\b(engineer|developer|front[ -]?end|product)\b/.test(titleLower)) {
+    return true;
+  }
+  if (/\bproduct-?led\b|\bend-to-end ownership\b|\bcustomer conversations?\b/i.test(text)) {
+    return true;
+  }
+  if (/\bstartup\b/i.test(text) && /\b(product|founder|0-?1|lean)\b/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+export function isPureFrontendRole(title = "", jd = "") {
+  if (isProductOrLeadRole(title, jd)) return false;
+  const titleLower = normalize(title);
+  return /\bfront[ -]?end\b|\bui (?:developer|engineer)\b|\breact\b|\bnext\.?(?:js)?\b|\bshopify\b|\bmagento\b|\bhyv[aä]\b/.test(titleLower);
+}
 
 /** Canonical project cards (verified catalog). */
 export const PROJECT_CATALOG = {
@@ -240,6 +292,7 @@ export const DOMAIN_PROJECT_POOLS = {
   REACT_FRONTEND: PROJECT_CATALOG.react,
   FULLSTACK_TYPESCRIPT_NODE: PROJECT_CATALOG.react,
   FRONTEND_LEAD: [
+    CLASPWELL_PROJECT,
     PROJECT_CATALOG.magento[0],
     PROJECT_CATALOG.magento[7],
     PROJECT_CATALOG.react[0],
@@ -247,6 +300,7 @@ export const DOMAIN_PROJECT_POOLS = {
     PROJECT_CATALOG.react[3]
   ],
   PRODUCT_ENGINEERING: [
+    CLASPWELL_PROJECT,
     PROJECT_CATALOG.react[0],
     PROJECT_CATALOG.react[4],
     PROJECT_CATALOG.react[1],
@@ -537,7 +591,7 @@ export function classifyDomain(title = "", jd = "", extra = "") {
   const fullstackTitle = /\bfull[ -]?stack\b/.test(titleLower);
   const leadTitle = /\b(frontend lead|front-end lead|tech lead|technical lead|team lead|staff|principal|lead front-?end|lead frontend)\b/.test(titleLower)
     || (/\blead\b/.test(titleLower) && /\b(front[ -]?end|react|engineer|developer)\b/.test(titleLower));
-  const productTitle = /\bproduct engineer\b|\bproduct frontend\b/.test(titleLower);
+  const productTitle = /\bproduct engineer\b|\bproduct owner\b|\bproduct frontend\b|\bfounding (?:engineer|product)\b|\btechnical product\b/.test(titleLower);
   const deliveryTitle = /\b(delivery manager|technical delivery|delivery lead|project manager)\b/.test(titleLower)
     && !/\b(developer|engineer|programista)\b/.test(titleLower);
   const frontendTitle = /\bfront[ -]?end\b|\bui (?:developer|engineer)\b|\bweb (?:developer|engineer)\b/.test(titleLower);
@@ -549,7 +603,16 @@ export function classifyDomain(title = "", jd = "", extra = "") {
     REACT_FRONTEND: countHits(all, [/\breact(?:\.js|js)?\b/i, /\bnext\.?(?:js)?\b/i, /\btypescript\b/i, /\bgatsby\b/i]),
     FULLSTACK_TYPESCRIPT_NODE: countHits(all, [/\bfull[ -]?stack\b/i, /\bnode\.?(?:js)?\b/i, /\bnest\.?(?:js)?\b/i]),
     FRONTEND_LEAD: countHits(all, [/\btech(?:nical)? lead\b/i, /\bfrontend lead\b/i, /\blead front-?end\b/i, /\barchitecture decisions\b/i]),
-    PRODUCT_ENGINEERING: countHits(all, [/\bproduct engineer\b/i, /\bproduct-minded\b/i, /\b0-?1\b/i]),
+    PRODUCT_ENGINEERING: countHits(all, [
+      /\bproduct engineer\b/i,
+      /\bproduct owner\b/i,
+      /\bproduct-?minded\b/i,
+      /\bproduct-?led\b/i,
+      /\bend-to-end ownership\b/i,
+      /\bcustomer conversations?\b/i,
+      /\bfounding (?:engineer|product)\b/i,
+      /\b0-?1\b/i
+    ]),
     DELIVERY_TECHNICAL: countHits(all, [/\bdelivery ownership\b/i, /\brequirements analysis\b/i, /\bstakeholder\b/i]),
     GENERAL_FRONTEND: countHits(all, [/\bfront[ -]?end\b/i, /\bjavascript\b/i, /\bhtml5\b/i, /\bcss3\b/i])
   };
@@ -669,6 +732,9 @@ export function selectProjectsForDomain(primaryDomain, { title = "", jd = "", co
   const jdText = `${title}\n${jd}`;
   const wantsReactSupport = jdRequestsReact(jdText);
   const reactSupport = PROJECT_CATALOG.react.find((project) => project.name === "ponadczasowi.pl");
+  const productOrLead = isProductOrLeadRole(title, jd)
+    || primary === "PRODUCT_ENGINEERING"
+    || primary === "FRONTEND_LEAD";
 
   let selected = [];
   if (PINNED_PROJECTS[primary]) {
@@ -683,6 +749,11 @@ export function selectProjectsForDomain(primaryDomain, { title = "", jd = "", co
     selected = domainProjectPool(primary).slice(0, Math.min(4, Math.max(2, count || 4)));
   }
 
+  if (productOrLead) {
+    const claspwell = claspwellProjectCard({ productOwnership: true });
+    selected = [claspwell, ...selected.filter((project) => normalizeName(project.name) !== "claspwell")].slice(0, 4);
+  }
+
   selected = selected.filter(Boolean).slice(0, 4);
   if (selected.length < 2) {
     selected = domainProjectPool(primary).slice(0, 3);
@@ -691,7 +762,12 @@ export function selectProjectsForDomain(primaryDomain, { title = "", jd = "", co
   return {
     primary,
     projects: selected.map(({ name, tech, description }) => ({ name, tech, description })),
-    reasons: selected.map((p) => ({ name: p.name, reason: `Primary ${primary} whitelist` }))
+    reasons: selected.map((p) => ({
+      name: p.name,
+      reason: normalizeName(p.name) === "claspwell" && productOrLead
+        ? "Product/lead role: Claspwell product-ownership evidence"
+        : `Primary ${primary} whitelist`
+    }))
   };
 }
 
@@ -717,12 +793,20 @@ function pickBullets(entry, keywords, fallbackCount = 2) {
   return picked.length ? picked : bullets.slice(0, 2);
 }
 
-export function selectExperienceBulletsForDomain(primaryDomain, experience = []) {
+export function selectExperienceBulletsForDomain(primaryDomain, experience = [], { title = "", jd = "" } = {}) {
   const primary = normalizePrimaryDomain(primaryDomain) || primaryDomain;
-  return experience.map((entry) => {
+  const productOrLead = isProductOrLeadRole(title, jd)
+    || primary === "PRODUCT_ENGINEERING"
+    || primary === "FRONTEND_LEAD";
+
+  const mapped = experience.map((entry) => {
     const company = normalize(entry.company);
     let bullets = entry.bullets || [];
-    if (company.includes("for better future")) {
+    if (company.includes("claspwell")) {
+      bullets = productOrLead
+        ? pickBullets(entry, ["catalog-aware", "customer discovery", "pricing", "end to end", "go-to-market", "466"], 4)
+        : pickBullets(entry, ["catalog", "chat", "magento", "frontend"], 1);
+    } else if (company.includes("for better future")) {
       bullets = FBF_BULLETS[primary] || FBF_BULLETS.GENERAL_FRONTEND;
     } else if (company.includes("huber")) {
       if (primary === "SHOPIFY") {
@@ -751,6 +835,11 @@ export function selectExperienceBulletsForDomain(primaryDomain, experience = [])
       bullets
     };
   });
+
+  if (!productOrLead) return mapped;
+  const claspwell = mapped.filter((entry) => normalize(entry.company).includes("claspwell"));
+  const rest = mapped.filter((entry) => !normalize(entry.company).includes("claspwell"));
+  return claspwell.length ? [...claspwell, ...rest] : mapped;
 }
 
 export function skillsMatchDomain(skills, primaryDomain) {
@@ -857,7 +946,7 @@ export function buildDomainDryRun(job = {}, experience = []) {
   const classified = classifyDomain(job.title || "", job.jd || job.extra || "", job.extra || "");
   const selected = selectProjectsForDomain(classified.primary, {
     title: job.title || "",
-    jd: job.jd || "",
+    jd: job.jd || job.extra || "",
     company: job.company || ""
   });
   const structure = {
@@ -867,7 +956,10 @@ export function buildDomainDryRun(job = {}, experience = []) {
     summary: summaryForDomain(classified.primary),
     skills: skillsForDomain(classified.primary),
     projects: selected.projects,
-    experience: selectExperienceBulletsForDomain(classified.primary, experience)
+    experience: selectExperienceBulletsForDomain(classified.primary, experience, {
+      title: job.title || "",
+      jd: job.jd || job.extra || ""
+    })
   };
   const validation = validateDomainConsistency({
     primaryDomain: structure.primary_domain,

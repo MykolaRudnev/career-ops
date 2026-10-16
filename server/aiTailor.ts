@@ -12,6 +12,7 @@ import {
   domainProjectPool,
   domainConsistencyValidation,
   enforceDomainConsistency,
+  isProductOrLeadRole,
   selectKnowledgeFiles
 } from "./cvDomainRouting.mjs";
 import { countPdfPagesFromBuffer, parseLoggedPdfPageCount } from "./pdfPageCount.mjs";
@@ -62,13 +63,23 @@ export interface AiTailorResult {
 
 export function assertProjectNamesAreNotEmployers(
   projects: Array<{ name: string }>,
-  experience: Array<{ company: string }>
+  experience: Array<{ company: string; role?: string }>
 ): void {
   const normalize = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   const isSiteName = (value: string) => /^(?:https?:\/\/)?(?:[\p{L}\p{N}-]+\.)+[\p{L}]{2,}(?:\/.*)?$/iu.test(value.trim());
-  const employers = experience.map(({ company }) => ({ company, normalized: normalize(company) })).filter(({ normalized }) => normalized.length >= 4);
+  const employers = experience
+    .map(({ company, role }) => ({ company, role: role || "", normalized: normalize(company) }))
+    .filter(({ normalized }) => normalized.length >= 4);
   const conflicts = projects
-    .filter(({ name }) => !isSiteName(name) && employers.some(({ normalized }) => normalize(name).includes(normalized)))
+    .filter(({ name }) => {
+      if (isSiteName(name)) return false;
+      const projectName = normalize(name);
+      return employers.some(({ normalized, role }) => {
+        // Founder products may share the company and project name (e.g. Claspwell).
+        if (projectName === normalized && /\bfounder\b|\bproduct engineer\b/i.test(role)) return false;
+        return projectName.includes(normalized);
+      });
+    })
     .map(({ name }) => name);
   if (conflicts.length) throw new Error(`Invalid AI tailoring response: employer names cannot be project titles: ${conflicts.join(", ")}`);
 }
@@ -224,6 +235,13 @@ export function buildTailoringPrompt(
   const aiKnowledge = fs.existsSync(aiMdPath) ? fs.readFileSync(aiMdPath, "utf8") : "";
   const candidate = loadDashboardProfile();
   const primaryPool = domainProjectPool(classified.primary).map((p) => p.name).join(", ");
+  const productOrLead = isProductOrLeadRole(job.title, fullJd)
+    || classified.primary === "PRODUCT_ENGINEERING"
+    || classified.primary === "FRONTEND_LEAD";
+  const claspwellRule = productOrLead
+    ? "PRODUCT/LEAD ROLE: Always include Claspwell as the first project with product-ownership wording that mirrors JD language (catalog-aware AI sales assistant, customer discovery, scope/pricing from €99/mo, chat-widget UX, Magento integration, 466 tests, guided onboarding, go-to-market). Also keep the Claspwell Founder & Product Engineer experience entry near the top with those same facts."
+    : "PURE FRONTEND ROLE: Claspwell is optional. If included, use the short frontend wording only (catalog chat / Alpine widget / Next.js + Payload) — do not lead with founder/pricing/GTM claims.";
+  const masterExperience = loadParsedMasterCv().experience;
   const shopifyForbidden = classified.primary === "SHOPIFY"
     ? "ponadczasowi.pl, copernicspace.com, hrk.pl, pmicareers.pl, learningspace.app, carneoo.de"
     : classified.primary === "MAGENTO_HYVA"
@@ -250,6 +268,7 @@ SECONDARY DOMAINS: ${classified.secondary.join(", ") || "none"}
 PRIMARY PROJECT WHITELIST (must supply at least 75% of selected projects): ${primaryPool}
 Do NOT normally select: ${shopifyForbidden}
 Prefer 4–6 projects; at least 75% must come from the primary pool.
+${claspwellRule}
 Shopify vacancies: optionally ONE supporting React e-commerce project ONLY if the JD explicitly asks for React/Next.js.
 Magento vacancies: optionally ONE React project if the JD asks for React/Next.js.
 React vacancies: optionally ONE e-commerce project if relevant.
@@ -340,9 +359,10 @@ PROFESSIONAL SUMMARY RULES
 ==================================================
 WORK EXPERIENCE BULLETS RULES
 ==================================================
-- Preserve every employer, title and date from this canonical list. Locations reflect engagement context; the header separately states the candidate's current base:
-${loadParsedMasterCv().experience.map((entry, index) => `  ${index + 1}. ${entry.company} (${entry.dates} | ${entry.location} | ${entry.role})`).join("\n")}
+- Preserve every employer, title and date from this canonical list (${masterExperience.length} entries). Locations reflect engagement context; the header separately states the candidate's current base:
+${masterExperience.map((entry, index) => `  ${index + 1}. ${entry.company} (${entry.dates} | ${entry.location} | ${entry.role})`).join("\n")}
 - Recent/relevant roles: approximately 3–5 strong bullets. Older/supporting roles: 1–3 bullets.
+${productOrLead ? "- For this product/lead vacancy: place Claspwell (Founder & Product Engineer) near the top of Work Experience and emphasize product-ownership bullets from cv.md." : ""}
 - Each bullet should normally fit 1–2 visual lines: action + technical/business scope + result or practice. Avoid vague claims without concrete context; never invent metrics.
 - Map mandatory JD requirements into Work Experience wherever employer-specific factual evidence exists; do not put all matching words only in Technical Skills. A skill inventory alone does not establish its use at a particular employer. Do not fabricate testing, design-system ownership or integrations to close a gap.
 ${resolvedAdjacentMode === "off" ? "- Do NOT introduce unlisted tool names into experience bullets that are absent from cv.md." : "- Do NOT introduce unlisted tool names into experience bullets that are absent from cv.md, except for the single explicitly permitted ALLOWED ADJACENT SKILLS tooling rephrase."}
@@ -372,10 +392,11 @@ SUMMARY & EXPERIENCE ROUTING
   * REACT_FRONTEND: "Senior Frontend Developer specializing in React, Next.js and TypeScript..."
   * MAGENTO_HYVA: "Senior Frontend Developer with deep Magento 2 / Hyvä experience..."
   * FULLSTACK_TYPESCRIPT_NODE: "Senior Frontend Engineer expanding into frontend-heavy Fullstack TypeScript..."
-- Preserve the exact 6 employers and dates. Select bullets by PRIMARY DOMAIN.
+- Preserve the exact ${masterExperience.length} employers and dates. Select bullets by PRIMARY DOMAIN.
   * Shopify + For Better Future: Shopify themes, Liquid sections, custom blocks, storefront components, product/collection pages, Figma to storefront, e-commerce performance.
   * React + For Better Future: React, Next.js, TypeScript, architecture, reusable UI, multi-project delivery.
   * Magento + For Better Future: Magento 2, storefronts, PLP/PDP, Cart/Checkout, CMS, multi-store, performance.
+  * Product/Lead + Claspwell: catalog-aware AI assistant, customer discovery, pricing (€99/mo), chat UX, Magento integration, 466 tests, onboarding, GTM.
 
 ==================================================
 STRICT ANTI-FABRICATION
@@ -454,7 +475,8 @@ function parseTailoringJson(output: string): AiTailorResult {
   if (typeof result.headline !== "string" || !result.headline.trim()) missing.push("headline");
   if (typeof result.summary !== "string" || !result.summary.trim()) missing.push("summary");
   if (!Array.isArray(result.skills) || result.skills.length === 0 || result.skills.some((item) => !item || typeof item.category !== "string" || typeof item.items !== "string")) missing.push("skills");
-  if (!Array.isArray(result.experience) || result.experience.length !== 6 || result.experience.some((item) => !item || typeof item.company !== "string" || typeof item.role !== "string" || typeof item.location !== "string" || typeof item.dates !== "string" || !Array.isArray(item.bullets) || item.bullets.length === 0)) missing.push("experience (exactly 6 complete entries)");
+  const expectedExperienceCount = loadParsedMasterCv().experience.length;
+  if (!Array.isArray(result.experience) || result.experience.length !== expectedExperienceCount || result.experience.some((item) => !item || typeof item.company !== "string" || typeof item.role !== "string" || typeof item.location !== "string" || typeof item.dates !== "string" || !Array.isArray(item.bullets) || item.bullets.length === 0)) missing.push(`experience (exactly ${expectedExperienceCount} complete entries)`);
   if (!Array.isArray(result.projects) || result.projects.length < 2 || result.projects.length > 6 || result.projects.some((item) => !item || typeof item.name !== "string" || typeof item.tech !== "string" || typeof item.description !== "string")) missing.push("projects (2-6 complete entries)");
   const diff = result.tailoring_diff;
   if (!diff || typeof diff.summary_focus !== "string" || !Array.isArray(diff.skills_promoted) || !Array.isArray(diff.projects_selected) || !Array.isArray(diff.jd_keywords_matched) || typeof diff.experience_emphasis !== "string") missing.push("tailoring_diff");

@@ -26,11 +26,14 @@ test("toContactLink turns a profile URL string into url/display objects", () => 
 
 test("parseCvMarkdown reads the real cv.md ground truth", () => {
   const parsed = parseCvMarkdown(readFileSync(new URL("../cv.md", import.meta.url), "utf8"));
-  assert.equal(parsed.experience.length, 6);
+  assert.equal(parsed.experience.length, 7);
   assert.equal(parsed.experience[0].company, "HUBER SE");
+  assert.equal(parsed.experience[1].company, "Claspwell");
+  assert.match(parsed.experience[1].role, /Founder & Product Engineer/);
   assert.ok(parsed.experience.every((job) => job.role && job.dates && job.bullets.length > 0));
   assert.ok(parsed.skills.length >= 6);
   assert.ok(parsed.projects.length >= 4);
+  assert.ok(parsed.projects.some((project) => /claspwell/i.test(project.name)));
   assert.equal(parsed.education[0].title.includes("Computer Science"), true);
   assert.ok(parsed.languages.some((line) => line.startsWith("Polish")));
   assert.ok(parsed.summary.includes("6+ years"));
@@ -41,7 +44,7 @@ test("master payload keeps LinkedIn, GitHub, and portfolio as clickable links", 
   assert.equal(payload.candidate.linkedin.url, "https://linkedin.com/in/mykola-r-1525a5145/");
   assert.equal(payload.candidate.github.url, "https://github.com/MykolaRudnev");
   assert.equal(payload.candidate.portfolio.url, "https://mrudnev.com/");
-  assert.equal(payload.experience.length, 6);
+  assert.equal(payload.experience.length, 7);
   assert.ok(payload.skills.length > 0);
 });
 
@@ -49,7 +52,7 @@ test("simple fallback result is a complete un-tailored CV from cv.md", () => {
   const result = buildSimpleTailorResult({ title: "Senior Frontend Developer" });
   assert.equal(result.headline, "Senior Frontend Developer");
   assert.equal(result._fallbackUsed, true);
-  assert.equal(result.experience.length, 6);
+  assert.equal(result.experience.length, 7);
   assert.ok(result.projects.length >= 2 && result.projects.length <= 4);
   assert.match(result.tailoring_diff.summary_focus, /cv\.md/);
 });

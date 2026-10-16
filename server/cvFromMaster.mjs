@@ -246,7 +246,10 @@ export function buildSimpleTailorResult(job = {}) {
   const skills = skillsForDomain(classified.primary);
   const summary = summaryForDomain(classified.primary);
   const headline = job.title || headlineForDomain(classified.primary) || candidate.headline || parsed.headline;
-  const experience = selectExperienceBulletsForDomain(classified.primary, parsed.experience);
+  const experience = selectExperienceBulletsForDomain(classified.primary, parsed.experience, {
+    title: job.title || "",
+    jd: job.extra || ""
+  });
   return {
     primary_domain: classified.primary,
     secondary_domains: classified.secondary,

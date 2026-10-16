@@ -4,6 +4,7 @@ import {
   classifyDomain,
   validateDomainConsistency,
   selectProjectsForDomain,
+  selectExperienceBulletsForDomain,
   enforceDomainConsistency,
   domainConsistencyValidation,
   selectKnowledgeFiles,
@@ -11,9 +12,12 @@ import {
   isShopifyProject,
   isReactOnlyProject,
   isMagentoProject,
+  isProductOrLeadRole,
+  claspwellProjectCard,
   DomainValidationError
 } from "../server/cvDomainRouting.mjs";
 import { countPdfPagesFromBuffer, parseLoggedPdfPageCount } from "../server/pdfPageCount.mjs";
+import { loadParsedMasterCv } from "../server/cvFromMaster.mjs";
 
 test("classifies Shopify / React / Magento titles as the expected primary domain", () => {
   assert.equal(classifyDomain("Shopify Developer", "Theme work in Liquid").primary, "SHOPIFY");
@@ -276,4 +280,51 @@ trailer
 `, "latin1");
   assert.equal(countPdfPagesFromBuffer(pdf), 3);
   assert.equal(parseLoggedPdfPageCount("PDF generated\nPages: 2\nSize: 80 KB"), 2);
+});
+
+test("detects product/lead roles that must surface Claspwell", () => {
+  assert.equal(isProductOrLeadRole("Product Engineer", "B2B SaaS"), true);
+  assert.equal(isProductOrLeadRole("Product Owner", "roadmap"), true);
+  assert.equal(isProductOrLeadRole("Tech Lead", "architecture decisions"), true);
+  assert.equal(isProductOrLeadRole("Founding Engineer", "0-1 startup"), true);
+  assert.equal(isProductOrLeadRole("Senior Frontend Developer", "product-led company with customer conversations and end-to-end ownership"), true);
+  assert.equal(isProductOrLeadRole("Senior React Developer", "React, Next.js, TypeScript, component systems"), false);
+  assert.equal(isProductOrLeadRole("Shopify Developer", "Liquid themes and storefront UX"), false);
+});
+
+test("Product Engineer selection pins Claspwell first with product-ownership wording", () => {
+  const title = "Product Engineer";
+  const jd = "Product-led B2B SaaS startup. End-to-end ownership, customer conversations, lean shipping.";
+  const classified = classifyDomain(title, jd);
+  assert.equal(classified.primary, "PRODUCT_ENGINEERING");
+  const selected = selectProjectsForDomain(classified.primary, { title, jd });
+  assert.equal(selected.projects[0].name, "Claspwell");
+  assert.match(selected.projects[0].description, /Founder & Product Engineer|catalog-aware|€99|466 tests|customer discovery|go-to-market|GTM/i);
+  assert.equal(validateDomainConsistency({
+    primaryDomain: classified.primary,
+    projects: selected.projects,
+    jdText: `${title}\n${jd}`
+  }).ok, true);
+
+  const experience = selectExperienceBulletsForDomain(classified.primary, loadParsedMasterCv().experience, { title, jd });
+  assert.equal(experience[0].company, "Claspwell");
+  assert.ok(experience[0].bullets.length >= 1);
+  assert.match(experience[0].bullets.join(" "), /catalog-aware|customer discovery|€99|466/i);
+});
+
+test("pure frontend roles do not force Claspwell and keep the short card available", () => {
+  const react = selectProjectsForDomain("REACT_FRONTEND", {
+    title: "Senior React Developer",
+    jd: "React, Next.js, TypeScript, component systems"
+  });
+  assert.equal(react.projects.some((project) => project.name === "Claspwell"), false);
+  assert.deepEqual(react.projects.map((project) => project.name), [
+    "copernicspace.com",
+    "ponadczasowi.pl",
+    "hrk.pl",
+    "carneoo.de"
+  ]);
+  const short = claspwellProjectCard({ productOwnership: false });
+  assert.match(short.description, /category-first catalog chat|Alpine|Payload/i);
+  assert.doesNotMatch(short.description, /€99|466 tests|go-to-market|GTM/i);
 });

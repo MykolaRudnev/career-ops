@@ -32,6 +32,7 @@ This document acts as the definitive, multi-domain project registry for Career-O
 | **catering24.co.uk** | Commercial Catering Supplies | Magento 2 | Custom storefront with advanced commercial integrations, CMS-driven pages. | Cloudflight (Jul 2022 – Oct 2024) |
 | **solar.com.pl** | Fashion & Retail | Magento 2 | Full redesign: new pages, including category pages and checkout, plus CMS handover and client training. | Cloudflight (Jul 2022 – Oct 2024) |
 | **3mk.pl** | Mobile Accessories | Magento 2 | Built the storefront from scratch with the team: category pages, checkout, and other storefront pages, plus custom CMS page templates for the SEO team to reuse. Trained the client on the CMS. | 3MK Protection (Mar 2024 – May 2024) |
+| **Claspwell** | B2B SaaS / Magento AI assistant | Magento 2, Hyvä, Next.js, TypeScript, Alpine.js, Payload CMS | Founder & Product Engineer (2026–present): catalog-aware AI sales assistant for Magento 2/Hyvä stores end to end; syncs categories, products, attributes; owned customer discovery, scope, pricing (plans from €99/mo), chat-widget UX, frontend, Magento integration, 466 automated tests, guided onboarding, and go-to-market outreach. | Claspwell (Jan 2026 – Present) |
 
 ---
 
@@ -57,8 +58,8 @@ Knowledge stays broad. **Selection is domain-routed.** A deterministic validator
 3. **PRIMARY pool must supply at least 75% of selected projects.**
 4. **SHOPIFY whitelist:** Glasy.pl, Ascent, Warmsome, Pixel25, Berg's, Diamandia (caveat: our version was not released). **Default four, in order:** Glasy.pl, Pixel25, Warmsome, Berg's. Optionally swap the fourth for ponadczasowi.pl only if the JD explicitly asks for React/Next.js. Never ship 1 Shopify + 3 React.
 5. **REACT / NEXT whitelist:** copernicspace.com, ponadczasowi.pl, hrk.pl, carneoo.de, pmicareers.pl, learningspace.app. **Default four, in order:** copernicspace.com, ponadczasowi.pl, hrk.pl, carneoo.de. Do not add Shopify-specific or Magento projects unless the JD is e-commerce-relevant.
-6. **MAGENTO / HYVÄ whitelist:** shop.huber-se.com, 3mk.pl, British American Tobacco, solar.com.pl, housetipster.com, edycja.pl, fmic.pl, dreamroots.pl, hbsgroup.net, paypair.com, catering24.co.uk. **Default four, in order:** shop.huber-se.com, 3mk.pl, British American Tobacco (myglo is the redesign example; the other markets were support and fixes), solar.com.pl. Do not select React projects unless the JD explicitly requests React/Next.js.
-7. **Frontend Lead / General:** combine shop.huber-se.com (end-to-end frontend ownership and e-commerce scale) with ponadczasowi.pl or copernicspace.com (React/Next.js architecture), still keeping the primary-pool 75% rule.
+6. **MAGENTO / HYVÄ whitelist:** shop.huber-se.com, 3mk.pl, British American Tobacco, solar.com.pl, housetipster.com, edycja.pl, fmic.pl, dreamroots.pl, hbsgroup.net, paypair.com, catering24.co.uk. **Default four, in order:** shop.huber-se.com, 3mk.pl, British American Tobacco (myglo is the redesign example; the other markets were support and fixes), solar.com.pl. Do not select React projects unless the JD explicitly requests React/Next.js. Claspwell is optional and short on pure Magento frontend vacancies.
+7. **Frontend Lead / Product Engineering:** Always include **Claspwell** near the top with product-ownership wording when the JD is Product Engineer, Product Owner, Tech Lead, Lead, founding engineer, product-led, end-to-end ownership, startup, or customer conversations. Otherwise combine shop.huber-se.com with ponadczasowi.pl or copernicspace.com, still keeping the primary-pool 75% rule.
 
 ## Portfolio-verified additions
 
@@ -72,4 +73,4 @@ Observed directly in the live Projects section at https://www.mrudnev.com/case-s
 | Doppler Manufaktur | MAGENTO_HYVA | https://doppler-manufaktur.com/ | Magento 2, JavaScript, XML | Supported a commercial Magento store with bug fixes, new features and custom elements. |
 | bragan.net | MAGENTO_HYVA | https://bragan.net/ | Magento 2, JavaScript, XML | Implemented Magento updates and bug fixes for an automotive parts store; current linked-site availability was not verified. |
 
-Not added to the selectable registry: **Excellent** (Magento contribution appears on the portfolio, but no link or unambiguous business identity); **Claspwell** (portfolio asserts founder/product ownership and backend scope absent from cv.md; do not import those claims). No website biography, tenure, employment dates or new metrics were imported.
+Not added to the selectable registry: **Excellent** (Magento contribution appears on the portfolio, but no link or unambiguous business identity). **Claspwell** is canonical in cv.md (Founder & Product Engineer, 2026–present) and is selectable — required near the top for product/lead roles; optional and shorter for pure frontend roles.
