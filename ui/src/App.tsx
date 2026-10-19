@@ -44,7 +44,7 @@ import { ManualJobBoard } from "./ManualJobBoard";
 import { isPolandJob, loadMarketLane, matchesMarketLane, saveMarketLane, type MarketLane } from "./marketLane";
 import { CoverLetterModal } from "./CoverLetterModal";
 import { MarketAnalytics } from "./MarketAnalytics";
-import { filterMarketJobs, pipelineDrilldown } from "./marketFilters";
+import { filterMarketJobs, groupLocationVariants, locationLabels, pipelineDrilldown, pipelineRelevanceScore } from "./marketFilters";
 import {
   Search,
   FileText,
@@ -492,12 +492,13 @@ export function App() {
     currentList.filter(job => matchesMarketLane(job, marketLane)),
     { country: countryFilter, workModel: modelFilter, minimumScore, technology: technologyFilter, search: searchQuery }
   );
-  const bestMatchCount = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, "BEST_MATCH")).length;
-  const reactNextCount = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, "REACT_NEXT")).length;
-  const shopifyCount = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, "SHOPIFY")).length;
-  const magentoCount = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, "MAGENTO")).length;
-  const nodeCount = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, "NODE")).length;
-  const seniorLeadCount = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, "SENIOR_LEAD")).length;
+  const groupedPipelineJobs = groupLocationVariants(pipelineJobsBeforeCategory);
+  const bestMatchCount = groupedPipelineJobs.filter(job => categoryMatches(job, "BEST_MATCH")).length;
+  const reactNextCount = groupedPipelineJobs.filter(job => categoryMatches(job, "REACT_NEXT")).length;
+  const shopifyCount = groupedPipelineJobs.filter(job => categoryMatches(job, "SHOPIFY")).length;
+  const magentoCount = groupedPipelineJobs.filter(job => categoryMatches(job, "MAGENTO")).length;
+  const nodeCount = groupedPipelineJobs.filter(job => categoryMatches(job, "NODE")).length;
+  const seniorLeadCount = groupedPipelineJobs.filter(job => categoryMatches(job, "SENIOR_LEAD")).length;
 
   const countryFacetJobs = filterMarketJobs(currentList.filter(job => matchesMarketLane(job, marketLane)), {
     workModel: modelFilter, minimumScore, technology: technologyFilter, search: searchQuery
@@ -512,8 +513,8 @@ export function App() {
   const bulkLaneCount = marketFacetJobs.length - polandCount;
   const technologyOptions = [...new Set(currentList.flatMap(job => job.technologies || []))].sort();
 
-  const filteredJobs = pipelineJobsBeforeCategory.filter(job => categoryMatches(job, matchCategory))
-    .sort((a, b) => (b.compatibilityPercent || 0) - (a.compatibilityPercent || 0));
+  const filteredJobs = groupedPipelineJobs.filter(job => categoryMatches(job, matchCategory))
+    .sort((a, b) => pipelineRelevanceScore(b) - pipelineRelevanceScore(a));
 
   const visibleJobs = filteredJobs.slice(0, 100);
   const automation = useApplicationAutomation({
@@ -1129,6 +1130,7 @@ export function App() {
                 </tr>
               ) : (
                 visibleJobs.map((job) => {
+                  const locations = locationLabels(job);
                   let scoreClass = "score-none";
                   if (job.fitScore) {
                     if (job.fitScore >= 4.0) scoreClass = "score-high";
@@ -1199,7 +1201,14 @@ export function App() {
                         {(job.reasonDisplay || job.reason) && <button className="reason-toggle" title={job.reasonDisplay || job.reason} onClick={(event) => { event.stopPropagation(); handleSelectJob(job); }}>ⓘ Why this match</button>}
                       </td>
                       <td style={{ color: "var(--text-main)" }}>{job.company}</td>
-                      <td>{job.location}</td>
+                      <td>
+                        {locations.length > 1 ? (
+                          <details onClick={(event) => event.stopPropagation()}>
+                            <summary title={locations.join(", ")}>{locations[0]} +{locations.length - 1} locations</summary>
+                            <div style={{ marginTop: "6px", maxWidth: "260px", color: "var(--text-muted)" }}>{locations.join(", ")}</div>
+                          </details>
+                        ) : locations[0] || "—"}
+                      </td>
                       <td>
                         <span
                           className={`badge ${

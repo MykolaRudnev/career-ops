@@ -50,7 +50,7 @@ test("master payload keeps LinkedIn, GitHub, and portfolio as clickable links", 
 
 test("simple fallback result is a complete un-tailored CV from cv.md", () => {
   const result = buildSimpleTailorResult({ title: "Senior Frontend Developer" });
-  assert.equal(result.headline, "Senior Frontend Developer");
+  assert.equal(result.headline, "Senior Frontend Developer | JavaScript | TypeScript | Product UI");
   assert.equal(result._fallbackUsed, true);
   assert.equal(result.experience.length, 7);
   assert.ok(result.projects.length >= 2 && result.projects.length <= 4);

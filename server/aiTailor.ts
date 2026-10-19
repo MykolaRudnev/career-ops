@@ -302,6 +302,7 @@ For each vacancy, show ONLY:
 
 Each tailored CV must surface ONLY the narrow subset that maximizes positioning for this specific vacancy.
 ${adjacentSection}
+The vacancy title and JD describe the target, not the candidate. If a JD technology is absent from MASTER CV GROUND TRUTH and absent from ALLOWED ADJACENT SKILLS, omit it from every output field, including headline, summary, skills, experience, and projects.
 ==================================================
 TECHNICAL SKILLS RULES & LIMITS
 ==================================================
@@ -326,7 +327,7 @@ TECHNICAL SKILLS RULES & LIMITS
      * Do NOT make Magento / Hyvä prominent unless the JD specifically values broader multi-platform experience.
 
    - FRONTEND-HEAVY FULLSTACK / NODE.JS ROLES:
-     * Prioritize: Frontend (React, Next.js, TypeScript, JavaScript), Architecture (Frontend Architecture, SSR, ISR, SSG, Component Systems), APIs & Integration (REST API, GraphQL, JSON), Fullstack Direction (truthful, natural wording such as "Fullstack & API: TypeScript, Node.js fundamentals, REST API, GraphQL, JSON" — strictly no generic "expanding" weakness statement, and never claim years of backend ownership), Tooling & Performance.
+     * Prioritize source-backed frontend, architecture, API integration, tooling, and performance strengths. Add a backend technology only when it appears in MASTER CV GROUND TRUTH or ALLOWED ADJACENT SKILLS, while obeying the adjacent-skill placement rules. Never claim years of backend ownership.
 
    - LEAD / TECH LEAD ROLES:
      * Technical skills remain prominent and visible.
@@ -412,7 +413,7 @@ Schema:
 {
   "primary_domain": "${classified.primary}",
   "secondary_domains": [${classified.secondary.map((d) => `"${d}"`).join(", ")}],
-  "headline": "Target Professional Headline for this vacancy",
+  "headline": "Source-backed professional headline; do not copy unsupported JD technologies",
   "summary": "Custom tailored 45–70 word summary",
   "skills": [
     { "category": "Category Name", "items": "Comma-separated list of technologies" }

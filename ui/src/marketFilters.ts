@@ -14,6 +14,7 @@ export type MarketJob = {
   matchTier?: string | null;
   matchClassification?: string;
   matchScore?: number | null;
+  compatibilityPercent?: number;
   fitScore?: number;
   publishedAt?: string | null;
   discoveredAt?: string | null;
@@ -21,6 +22,57 @@ export type MarketJob = {
   active?: boolean;
   status?: string;
 };
+
+export type LocationVariant = { id?: string; url?: string; location?: string };
+export type LocationGroupedJob<T extends MarketJob> = T & { locationVariants?: LocationVariant[] };
+
+function identityKey(value: string) {
+  return value.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+export function groupLocationVariants<T extends MarketJob>(jobs: T[]): LocationGroupedJob<T>[] {
+  const groups = new Map<string, LocationGroupedJob<T>>();
+  const result: LocationGroupedJob<T>[] = [];
+  for (const job of jobs) {
+    const date = job.date || job.publishedAt || "";
+    const key = date && job.company && job.title ? `${identityKey(job.company)}|${identityKey(job.title)}|${date}` : "";
+    const existing = key ? groups.get(key) : undefined;
+    if (!existing) {
+      const grouped: LocationGroupedJob<T> = { ...job, locationVariants: [{ id: job.id, url: job.url, location: job.location }] };
+      if (key) groups.set(key, grouped);
+      result.push(grouped);
+    } else {
+      existing.locationVariants!.push({ id: job.id, url: job.url, location: job.location });
+    }
+  }
+  for (const job of result) if (job.locationVariants?.length === 1) delete job.locationVariants;
+  return result;
+}
+
+export function locationLabels(job: MarketJob & { locationVariants?: LocationVariant[] }): string[] {
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const value of (job.locationVariants || [job]).flatMap(variant => String(variant.location || "").split(","))) {
+    const label = value.trim();
+    const key = identityKey(label);
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      labels.push(label);
+    }
+  }
+  return labels.sort((a, b) => Number(/^remote$/i.test(b)) - Number(/^remote$/i.test(a)) || a.localeCompare(b));
+}
+
+export function pipelineRelevanceScore(job: MarketJob): number {
+  const evaluated = job.compatibilityPercent ?? job.matchScore;
+  if (evaluated != null) return evaluated;
+  const title = job.title.toLowerCase();
+  if (/\bjava\b(?!script)|\bspring(?: boot)?\b|\bpython\b|\bdjango\b|\bfastapi\b|(?:^|\W)\.net\b|\bc#(?!\w)|\basp\.net\b/.test(title)) return 10;
+  if (/\b(?:react(?:\.js)?|next\.?js|typescript|frontend|front-end|magento|hyv[aä]|adobe commerce|shopify)\b/.test(title)) return /\bfull[ -]?stack\b/.test(title) ? 75 : 85;
+  if (/\b(?:node\.?js|nestjs|cms|wordpress|drupal|contentful|strapi|project manager|project administrator|delivery manager|delivery lead|product owner)\b/.test(title)) return 65;
+  if (/\bproduct engineer\b/.test(title)) return 60;
+  return 40;
+}
 
 export type MarketFilters = {
   country: string;

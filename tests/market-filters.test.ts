@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { activeFilterChips, EMPTY_MARKET_FILTERS, filterJobsByTechnologies, filterMarketJobs, groupedTechnologyOptions, isNodeBackendJob, pipelineDrilldown, presetTechnologies, selectChartTechnologies, sortFilteredOffers, sortJobPreviews, visibleTechnologyOptions, type MarketJob, type TechnologyDemand } from "../ui/src/marketFilters.ts";
+import { activeFilterChips, EMPTY_MARKET_FILTERS, filterJobsByTechnologies, filterMarketJobs, groupLocationVariants, groupedTechnologyOptions, isNodeBackendJob, locationLabels, pipelineDrilldown, pipelineRelevanceScore, presetTechnologies, selectChartTechnologies, sortFilteredOffers, sortJobPreviews, visibleTechnologyOptions, type MarketJob, type TechnologyDemand } from "../ui/src/marketFilters.ts";
 
 const jobs: MarketJob[] = [
   { url: "1", title: "Backend", company: "A", countries: ["Poland"], workModel: "Remote", technologies: ["Node.js", "NestJS"], roleFamily: "Backend", active: true },
@@ -14,6 +14,29 @@ test("country and work-model facets recalculate active Node counts", () => {
   assert.equal(filterMarketJobs(jobs, { technology: "Node.js" }).length, 3);
   assert.equal(filterMarketJobs(jobs, { country: "Poland", technology: "Node.js" }).length, 2);
   assert.equal(filterMarketJobs(jobs, { country: "Poland", workModel: "Remote", technology: "Node.js" }).length, 1);
+});
+
+test("same company, role, and date collapse into one row with merged locations", () => {
+  const grouped = groupLocationVariants([
+    { id: "remote", url: "https://example.com/remote", title: "React Developer", company: "Acme", date: "2026-10-18", location: "Remote, Warsaw" },
+    { id: "poznan", url: "https://example.com/poznan", title: "React Developer", company: "Acme", date: "2026-10-18", location: "Poznan, Remote" },
+    { id: "repost", url: "https://example.com/repost", title: "React Developer", company: "Acme", date: "2026-10-19", location: "Krakow" },
+  ]);
+  assert.equal(grouped.length, 2);
+  assert.equal(grouped[0].locationVariants?.length, 2);
+  assert.deepEqual(locationLabels(grouped[0]), ["Remote", "Poznan", "Warsaw"]);
+  assert.equal(grouped[1].locationVariants, undefined);
+});
+
+test("pending jobs rank target and accepted adjacent roles above foreign backend stacks", () => {
+  const score = (title: string) => pipelineRelevanceScore({ title, company: "Acme" });
+  for (const title of ["Java Developer", "Python Developer", "Senior .NET Engineer", "React + Java Fullstack Developer"]) {
+    assert.ok(score("React Developer") > score(title), title);
+    assert.ok(score("Node.js Developer") > score(title), title);
+    assert.ok(score("CMS Administrator") > score(title), title);
+    assert.ok(score("Technical Project Manager") > score(title), title);
+  }
+  assert.equal(pipelineRelevanceScore({ title: "Evaluated Java Developer", company: "Acme", compatibilityPercent: 0 }), 0);
 });
 
 test("Node preset requires Node.js in Backend or Fullstack jobs", () => {

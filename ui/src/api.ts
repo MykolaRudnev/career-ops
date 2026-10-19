@@ -41,6 +41,7 @@ export interface PipelineJob {
   publishedAt?: string | null;
   discoveredAt?: string | null;
   active?: boolean;
+  locationVariants?: Array<{ id?: string; url?: string; location?: string }>;
 }
 
 export type AdjacentMode = "off" | "conservative" | "normal";

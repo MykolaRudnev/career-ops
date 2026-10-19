@@ -61,6 +61,26 @@ test('prompt exposes only the planned adjacent list and off keeps strict prompt 
   assert.match(off, /Do NOT introduce unlisted tool names into experience bullets that are absent from cv\.md\./);
 });
 
+test('Node vacancy does not instruct providers to claim unplanned Node.js', () => {
+  const prompt = buildTailoringPrompt(
+    { title: 'AI Engineer – Agentic Workflows (Node.js/React)', company: 'Acme', url: '' },
+    'Build agentic workflows with Node.js, React, LLMs and MLOps',
+    'normal'
+  );
+  assert.match(prompt, /ALLOWED ADJACENT SKILLS[\s\S]*?- none/);
+  assert.match(prompt, /omit it from every output field, including headline, summary, skills, experience, and projects/);
+  assert.doesNotMatch(prompt, /Fullstack & API: TypeScript, Node\.js fundamentals/);
+});
+
+test('Node vacancy fallback remains valid when Node.js is not planned', () => {
+  const jd = 'Build agentic workflows with Node.js, React, LLMs and MLOps';
+  const plan = planAdjacentSkills(jd, cvText, 'normal');
+  const fallback = buildSimpleTailorResult({ title: 'AI Engineer – Agentic Workflows (Node.js/React)', company: 'Acme', url: '', extra: jd });
+  assert.equal(plan.addStack.includes('Node.js'), false);
+  assert.doesNotMatch(JSON.stringify(fallback), /Node\.js/i);
+  assert.equal(validateAdjacentSkills(fallback, cvText, plan), true);
+});
+
 test('fact gate accepts a per-run planned skill and still blocks an unplanned one', () => {
   const configPath = new URL('../config/cv-facts.json', import.meta.url).pathname;
   const planned = verifyFacts('Built with Nx.', { sourcePaths: [], configPath, allowFacts: ['Nx'] });
