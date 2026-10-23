@@ -3384,11 +3384,17 @@ async function main() {
       + totalFilteredPostingAge + totalFilteredPostedDate + totalFilteredSalary
       + totalFilteredContent + totalFilteredCountryEligibility + totalFilteredBlacklist
       + totalFilteredVisa + totalFilteredCooldown;
+    const erroredCompanies = new Set(errors.map((e) => e.company));
+    const zeroTokenBoardsOk = targets
+      .filter((t) => t._isBoard && !erroredCompanies.has(t.name))
+      .map((t) => t.name);
+
     emitJsonReceipt({
       version: 'careerops.scan.receipt@1',
       date,
       scanned: targets.length,
       skipped: skippedCount,
+      zero_token_boards_ok: zeroTokenBoardsOk,
       found: totalFound,
       filtered,
       duplicates: totalDupes,

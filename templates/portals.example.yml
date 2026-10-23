@@ -2516,8 +2516,10 @@ job_boards:
     notes: "Polish job board — Other specialists division"
 
   # ── JustJoin.it / NoFluffJobs (Polish tech market) ────────────────────────
-  # Public job-board APIs. Disabled by default; enable and rely on the global
-  # title_filter/location_filter/salary_filter above for your target profile.
+  # Public job-board APIs. Included in Level 0 when enabled (scan.mjs / npm run scan)
+  # — same title_filter/location_filter/salary_filter as tracked companies; title
+  # matching also checks technologies on the posting. Disabled by default like other
+  # boards; set enabled: true to pull JustJoin without agent WebSearch/Playwright.
 
   - name: JustJoin.it
     careers_url: https://justjoin.it/job-offers/all-locations
