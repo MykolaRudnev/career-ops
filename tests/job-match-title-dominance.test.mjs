@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,10 +8,15 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FIXTURES = join(ROOT, "tests", "fixtures");
 const loadFixture = (name) => JSON.parse(readFileSync(join(FIXTURES, name), "utf8"));
 
-const profilePath = "/home/ubuntu/.cursor/projects/workspace/uploads/profile_b256.yml";
+function resolveRankingProfileSource() {
+  const userProfile = join(ROOT, "config", "profile.yml");
+  if (existsSync(userProfile)) return userProfile;
+  return join(FIXTURES, "profile-ranking-policy.yml");
+}
+
 const dataRoot = mkdtempSync(join(ROOT, ".tmp-job-match-policy-"));
 mkdirSync(join(dataRoot, "config"), { recursive: true });
-writeFileSync(join(dataRoot, "config", "profile.yml"), readFileSync(profilePath, "utf8"));
+writeFileSync(join(dataRoot, "config", "profile.yml"), readFileSync(resolveRankingProfileSource(), "utf8"));
 process.env.CAREER_OPS_ROOT = dataRoot;
 
 const { analyzeJobMatch, inferBoardPrimaryRole, jobPrimaryTechnologies } = await import(`../server/jobMatch.mjs?policy=${Date.now()}`);
