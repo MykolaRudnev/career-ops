@@ -41,6 +41,11 @@ import {
   type AdjacentMode
 } from "./api";
 import { ManualJobBoard } from "./ManualJobBoard";
+import { PipelineFilters } from "./PipelineFilters";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { isPolandJob, loadMarketLane, matchesMarketLane, saveMarketLane, type MarketLane } from "./marketLane";
 import { CoverLetterModal } from "./CoverLetterModal";
 import { MarketAnalytics } from "./MarketAnalytics";
@@ -62,8 +67,7 @@ import {
   Edit2,
   Check,
   Star,
-  Zap,
-  Filter
+  Zap
 } from "lucide-react";
 
 type AppliedSortColumn = "company" | "title" | "location" | "date" | "status" | "bid" | "source";
@@ -872,44 +876,30 @@ export function App() {
       </div>}
 
       {/* SECTION 1: SEARCH & PIPELINE */}
-      {activeTab === "pipeline" && <div className={`card pipeline-card ${pipelineView === "pending" ? "pipeline-grid" : ""}`}>
-        <div className="card-header">
-          <div className="card-title">
+      {activeTab === "pipeline" && <Card className="card pipeline-card gap-0 border-border bg-card !p-0 overflow-hidden">
+        <CardHeader className="card-header flex-row flex-wrap items-center justify-between gap-3 space-y-0 border-b border-border px-4 py-4 md:px-6 md:py-5">
+          <CardTitle className="card-title flex items-center gap-2 text-base font-semibold">
             <Search size={18} /> Section 1 — Search & Pipeline
-          </div>
-          <div className="pipeline-actions">
-            <button
-              className="btn btn-primary"
-              disabled={isScanning || isBulkScanning}
-              onClick={handleRunSearch}
-              title="Quick zero-token scan across all configured portals"
-            >
+          </CardTitle>
+          <div className="pipeline-actions flex flex-wrap gap-2">
+            <Button disabled={isScanning || isBulkScanning} onClick={handleRunSearch} title="Quick zero-token scan across all configured portals">
               {isScanning ? <span className="spinner" /> : <Play size={14} />}
               Run Job Search
-            </button>
-            <button
-              className="btn btn-bulk"
-              disabled={isBulkScanning || isScanning}
-              onClick={handleRunBulkSearch}
-              title="Runs bulk sweep to look for new offers across all portals and ATS sources"
-            >
+            </Button>
+            <Button variant="secondary" className="btn-bulk" disabled={isBulkScanning || isScanning} onClick={handleRunBulkSearch} title="Runs bulk sweep to look for new offers across all portals and ATS sources">
               {isBulkScanning ? <span className="spinner" /> : <Zap size={14} />}
               Bulk Find New Offers
-            </button>
-            <button
-              className="btn btn-outline"
-              disabled={isReranking}
-              onClick={handleRerank}
-              title="Re-score all active jobs and load full JDs for the leading contenders"
-            >
+            </Button>
+            <Button variant="outline" disabled={isReranking} onClick={handleRerank} title="Re-score all active jobs and load full JDs for the leading contenders">
               {isReranking ? <span className="spinner" /> : <RefreshCw size={14} />}
               Re-rank
-            </button>
-            <button className="btn btn-secondary" onClick={loadData}>
+            </Button>
+            <Button variant="secondary" onClick={loadData}>
               <RefreshCw size={14} /> Refresh Pipeline
-            </button>
+            </Button>
           </div>
-        </div>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4 p-4 md:gap-6 md:p-6">
 
         {/* Stats Strip */}
         <div className="stats-strip">
@@ -941,146 +931,43 @@ export function App() {
 
         <DiscoveryHealth compact refreshKey={status?.lastScan?.lastRun || ''} />
 
-        {/* Filters and Tabs */}
-        <div className="filter-bar" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap", width: "100%" }}>
-            <div className="tab-group">
-              <button
-                className={`tab-btn ${pipelineView === "pending" ? "active" : ""}`}
-                onClick={() => setPipelineView("pending")}
-              >
-                Pending Offers ({pendingJobs.length})
-              </button>
-              <button
-                className={`tab-btn ${pipelineView === "evaluated" ? "active" : ""}`}
-                onClick={() => { setActiveTab("pipeline"); setPipelineView("evaluated"); }}
-              >
-                Evaluated ({evaluatedJobs.length})
-              </button>
-              <button
-                className="tab-btn"
-                onClick={() => setActiveTab("applied")}
-              >
-                Applied ({processedJobs.filter((job) => job.status === "applied").length})
-              </button>
-              <button
-                className={`tab-btn ${pipelineView === "manual" ? "active" : ""}`}
-                onClick={() => setPipelineView("manual")}
-              >
-                Manual Job
-              </button>
-            </div>
+          <PipelineFilters
+            pipelineView={pipelineView}
+            setPipelineView={setPipelineView}
+            setActiveTab={setActiveTab}
+            pendingCount={pendingJobs.length}
+            evaluatedCount={evaluatedJobs.length}
+            appliedCount={processedJobs.filter((job) => job.status === "applied").length}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            matchCategory={matchCategory}
+            setMatchCategory={setMatchCategory}
+            categoryCounts={{
+              all: pipelineJobsBeforeCategory.length,
+              bestMatch: bestMatchCount,
+              reactNext: reactNextCount,
+              shopify: shopifyCount,
+              magento: magentoCount,
+              node: nodeCount,
+              seniorLead: seniorLeadCount,
+            }}
+            marketLane={marketLane}
+            setMarketLane={setMarketLane}
+            bulkLaneCount={bulkLaneCount}
+            polandCount={polandCount}
+            marketFacetTotal={marketFacetJobs.length}
+            countryFilter={countryFilter}
+            setCountryFilter={setCountryFilter}
+            countryOptions={countryOptions}
+            currentListCount={currentList.length}
+            technologyFilter={technologyFilter}
+            setTechnologyFilter={setTechnologyFilter}
+            technologyOptions={technologyOptions}
+            modelFilter={modelFilter}
+            setModelFilter={setModelFilter}
+          />
 
-            <input
-              type="text"
-              className="search-input"
-              placeholder="Filter by title, company, or city..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ minWidth: "240px", flex: 1, display: pipelineView === "manual" ? "none" : "block" }}
-            />
-          </div>
-
-          {/* Offer Focus Categories & Work Model */}
-          <div style={{ display: pipelineView === "manual" ? "none" : "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
-            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ fontSize: "12px", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "4px" }}>
-                <Filter size={13} /> Filter:
-              </span>
-              <button
-                className={`btn btn-sm ${matchCategory === "ALL" ? "btn-secondary" : "btn-outline"}`}
-                onClick={() => setMatchCategory("ALL")}
-              >
-                All ({pipelineJobsBeforeCategory.length})
-              </button>
-              <button
-                className={`btn btn-sm ${matchCategory === "BEST_MATCH" ? "btn-best-match active" : "btn-best-match"}`}
-                onClick={() => setMatchCategory(matchCategory === "BEST_MATCH" ? "ALL" : "BEST_MATCH")}
-                title="Filter offers matching your core Senior Frontend / React / TypeScript / E-Commerce profile"
-              >
-                <Star size={13} fill={matchCategory === "BEST_MATCH" ? "currentColor" : "none"} />
-                Best Matches ({bestMatchCount})
-              </button>
-              <button
-                className={`btn btn-sm ${matchCategory === "REACT_NEXT" ? "btn-secondary" : "btn-outline"}`}
-                onClick={() => setMatchCategory(matchCategory === "REACT_NEXT" ? "ALL" : "REACT_NEXT")}
-              >
-                ⚛️ React & Next.js ({reactNextCount})
-              </button>
-              <button
-                className={`btn btn-sm ${matchCategory === "SHOPIFY" ? "btn-secondary" : "btn-outline"}`}
-                onClick={() => setMatchCategory(matchCategory === "SHOPIFY" ? "ALL" : "SHOPIFY")}
-              >
-                🛍️ Shopify ({shopifyCount})
-              </button>
-              <button
-                className={`btn btn-sm ${matchCategory === "MAGENTO" ? "btn-secondary" : "btn-outline"}`}
-                onClick={() => setMatchCategory(matchCategory === "MAGENTO" ? "ALL" : "MAGENTO")}
-                title="Filter Magento 2, Hyvä Theme, and Adobe Commerce jobs"
-              >
-                🛒 Magento 2 ({magentoCount})
-              </button>
-              <button
-                className={`btn btn-sm ${matchCategory === "NODE" ? "btn-secondary" : "btn-outline"}`}
-                onClick={() => setMatchCategory(matchCategory === "NODE" ? "ALL" : "NODE")}
-                title="Filter Node.js and Fullstack TypeScript jobs"
-              >
-                🟢 Node.js ({nodeCount})
-              </button>
-              <button
-                className={`btn btn-sm ${matchCategory === "SENIOR_LEAD" ? "btn-secondary" : "btn-outline"}`}
-                onClick={() => setMatchCategory(matchCategory === "SENIOR_LEAD" ? "ALL" : "SENIOR_LEAD")}
-              >
-                👑 Senior & Lead ({seniorLeadCount})
-              </button>
-            </div>
-
-            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Market:</span>
-              {([
-                ["BULK", `US / Intl (${bulkLaneCount})`],
-                ["POLAND", `Poland · manual (${polandCount})`],
-                ["ALL", `All (${marketFacetJobs.length})`],
-              ] as const).map(([lane, label]) => (
-                <button
-                  key={lane}
-                  className={`btn btn-sm ${marketLane === lane ? "btn-secondary" : "btn-outline"}`}
-                  title={lane === "POLAND" ? "Poland roles: pick Apply on each row" : lane === "BULK" ? "Non-Poland roles — safe for bulk queue" : "Show every market"}
-                  onClick={() => { setMarketLane(lane); saveMarketLane(lane); }}
-                >
-                  {label}
-                </button>
-              ))}
-              <label className="country-filter-label">
-                Country:
-                <select className="country-filter" value={countryFilter} onChange={(event) => setCountryFilter(event.target.value)}>
-                  <option value="ALL">All countries ({currentList.length})</option>
-                  {countryOptions.map(([country, count]) => (
-                    <option key={country} value={country}>{country} ({count})</option>
-                  ))}
-                </select>
-              </label>
-              <label className="country-filter-label">
-                Technology:
-                <select className="country-filter" value={technologyFilter} onChange={(event) => setTechnologyFilter(event.target.value)}>
-                  <option value="">All technologies</option>
-                  {technologyOptions.map(technology => <option key={technology} value={technology}>{technology}</option>)}
-                </select>
-              </label>
-              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Model:</span>
-              {(["ALL", "Remote", "Hybrid", "Office"] as const).map((m) => (
-                <button
-                  key={m}
-                  className={`btn btn-sm ${modelFilter === m ? "btn-secondary" : "btn-outline"}`}
-                  onClick={() => setModelFilter(m)}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
+        <div className="flex min-w-0 w-full flex-col gap-3 md:gap-4">
         {pipelineView === "manual" && (
           <ManualJobBoard
             providerId={selectedProviderId}
@@ -1102,12 +989,22 @@ export function App() {
         )}
 
         {(pipelineView === "pending" || pipelineView === "evaluated") && (
-          <label className="score-filter">Minimum score <select value={minimumScore} onChange={e => setMinimumScore(Number(e.target.value))}>
-            {[0, 3, 3.5, 4, 4.5].map(score => <option key={score} value={score}>{score === 0 ? 'All scores' : `${score}+`}</option>)}
-          </select></label>
+          <div className="score-filter flex flex-wrap items-center gap-2 px-0 py-0">
+            <Label className="text-sm text-muted-foreground">Minimum score</Label>
+            <Select value={String(minimumScore)} onValueChange={(v) => setMinimumScore(Number(v))}>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[0, 3, 3.5, 4, 4.5].map((score) => (
+                  <SelectItem key={score} value={String(score)}>{score === 0 ? "All scores" : `${score}+`}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         )}
         {/* Pipeline Table */}
-        <div className="table-container" style={{ display: pipelineView === "manual" ? "none" : "block" }}>
+        <div className="table-container min-w-0 w-full overflow-x-auto" style={{ display: pipelineView === "manual" ? "none" : "block" }}>
           <table className="jobs-table">
             <thead>
               <tr>
@@ -1309,7 +1206,9 @@ export function App() {
         </div>
         {pipelineView === "pending" && automation.toolbar(visibleJobs, filteredJobs.length)}
         {automation.history}
-      </div>}
+        </div>
+        </CardContent>
+      </Card>}
 
       {activeTab === "applied" && (
         <section className="card applied-card">
