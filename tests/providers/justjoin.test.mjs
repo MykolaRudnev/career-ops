@@ -40,6 +40,7 @@ try {
         workplaceType: 'remote',
         locations: [{ city: 'Warszawa' }],
         publishedAt: '2026-06-12T10:00:00.000Z',
+        requiredSkills: [{ name: 'JavaScript' }],
       },
       { slug: '', title: 'Missing Slug', companyName: 'Broken' },
       null,
@@ -61,6 +62,12 @@ try {
     pass('justjoin parser maps company, location, and postedAt');
   } else {
     fail(`justjoin parser mapped fields incorrectly: ${JSON.stringify(parsed[0])}`);
+  }
+
+  if (Array.isArray(parsed[0].technologies) && parsed[0].description?.includes('Tech stack:')) {
+    pass('justjoin parser maps technologies and synthetic description');
+  } else {
+    fail(`justjoin parser should expose technologies/description: ${JSON.stringify(parsed[0])}`);
   }
 
   let capturedUrl = '';

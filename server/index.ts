@@ -21,7 +21,7 @@ import { loadDashboardProfile } from "./profile.ts";
 import { createManualJob, loadManualJobs } from "./manualJobs.ts";
 import { operationManager } from "./operations.ts";
 import { applicationCoverContext, loadCoverLetter, saveCoverLetterEdit } from "./coverLetter.ts";
-import { buildAnalyticsIndex, findAnalyticsJob, getMarketAnalyticsIndex, getTechnologyTrend } from "./marketAnalytics.mjs";
+import { findAnalyticsJob, getMarketAnalyticsIndex, getTechnologyTrend } from "./marketAnalytics.mjs";
 import { resolveAdjacentMode } from "./adjacentSkills.mjs";
 
 import { applicationHistory, recoverInterruptedApplications, startApplications } from "./application/service.ts";
@@ -124,11 +124,15 @@ app.get("/api/status", (req, res) => {
 app.get("/api/pipeline", (req, res) => {
   try {
     const { pending, processed } = parsePipeline();
-    const analytics = { jobs: buildAnalyticsIndex([], [...pending, ...processed]) };
+    const analytics = { jobs: getMarketAnalyticsIndex(WORKSPACE_ROOT, [...pending, ...processed]) };
 
     // Attach cached evaluations
     const enrich = (job: any) => {
-      const evaluation = careerOps.getEvaluationForDisplay(job);
+      const market = findAnalyticsJob(analytics, job);
+      const jobForEval = market?.technologies?.length
+        ? { ...job, technologies: market.technologies, seniority: market.seniority || job.seniority }
+        : job;
+      const evaluation = careerOps.getEvaluationForDisplay(jobForEval);
       // Keep the list response small; full JD/evidence stays in the server cache.
       const evalData = {
         fitScore: evaluation.fitScore,
@@ -145,7 +149,6 @@ app.get("/api/pipeline", (req, res) => {
         responsibilitySplit: evaluation.responsibilitySplit,
         evaluatedFrom: evaluation.evaluatedFrom
       };
-      const market = findAnalyticsJob(analytics, job);
       const marketFields = market ? {
         technologies: market.technologies,
         roleFamily: market.roleFamily,
