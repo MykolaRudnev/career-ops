@@ -933,35 +933,6 @@
 }
 @media (max-width: 700px) { .dashboard { width: 100%; padding: 10px; } }
 
-@media (min-width: 1550px) {
-  .pipeline-grid { display: grid; grid-template-columns: 210px minmax(0, 1fr); align-items: start; }
-  .pipeline-grid > .card-header, .pipeline-grid > .stats-strip { grid-column: 1 / -1; }
-  .pipeline-grid > .filter-bar {
-    grid-column: 1;
-    grid-row: 3 / span 5;
-    border-right: 1px solid var(--border);
-    padding: 12px;
-    position: sticky;
-    top: 12px;
-    align-self: start;
-    max-height: calc(100vh - 24px);
-    overflow: auto;
-  }
-  .pipeline-grid > .filter-bar > div { flex-direction: column; align-items: stretch !important; }
-  .pipeline-grid > .filter-bar .tab-group { flex-wrap: wrap; }
-  .pipeline-grid > .table-container,
-  .pipeline-grid > .application-toolbar,
-  .pipeline-grid > .application-history,
-  .pipeline-grid > .score-filter { grid-column: 2; min-width: 0; }
-}
-
-@media (min-width: 1550px) {
-  .pipeline-grid > .filter-bar .search-input { min-width: 0 !important; width: 100%; }
-  .pipeline-grid > .filter-bar .country-filter-label { flex-wrap: wrap; }
-  .pipeline-grid > .filter-bar .country-filter { max-width: 100%; }
-  .pipeline-grid > .filter-bar .tab-group { width: 100%; }
-}
-
 /* Job detail actions reuse the dashboard's dark-theme tokens. */
 .job-details-overlay .modal-content { gap: 24px; }
 .job-details-overlay .modal-header { gap: 16px; }
