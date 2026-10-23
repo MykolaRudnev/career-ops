@@ -1,13 +1,13 @@
-import { Filter, SlidersHorizontal, Star } from "lucide-react";
+import { ChevronDown, SlidersHorizontal, Star } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toggle } from "@/components/ui/toggle";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown } from "lucide-react";
 import { saveMarketLane, type MarketLane } from "./marketLane";
 import { cn } from "@/lib/utils";
 
@@ -62,25 +62,107 @@ function CategoryChip({
   className?: string;
 }) {
   return (
-    <Toggle pressed={pressed} onPressedChange={onPressedChange} variant="outline" size="sm" className={cn("h-auto min-h-8 whitespace-normal text-left", className)}>
+    <Toggle
+      pressed={pressed}
+      onPressedChange={onPressedChange}
+      variant="outline"
+      size="sm"
+      className={cn("h-auto min-h-8 max-w-full whitespace-normal px-2.5 py-1.5 text-left text-xs sm:text-sm", className)}
+    >
       {children}
     </Toggle>
   );
 }
 
-function PipelineFiltersPanel(props: PipelineFiltersProps) {
+function MatchCategoryChips({
+  matchCategory,
+  setMatchCategory,
+  categoryCounts,
+}: Pick<PipelineFiltersProps, "matchCategory" | "setMatchCategory" | "categoryCounts">) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <CategoryChip pressed={matchCategory === "ALL"} onPressedChange={() => setMatchCategory("ALL")}>
+        All ({categoryCounts.all})
+      </CategoryChip>
+      <CategoryChip
+        pressed={matchCategory === "BEST_MATCH"}
+        onPressedChange={() => setMatchCategory(matchCategory === "BEST_MATCH" ? "ALL" : "BEST_MATCH")}
+        className="data-[state=on]:border-primary/50 data-[state=on]:text-primary"
+      >
+        <Star className="size-3.5 shrink-0" fill={matchCategory === "BEST_MATCH" ? "currentColor" : "none"} />
+        Best ({categoryCounts.bestMatch})
+      </CategoryChip>
+      <CategoryChip
+        pressed={matchCategory === "REACT_NEXT"}
+        onPressedChange={() => setMatchCategory(matchCategory === "REACT_NEXT" ? "ALL" : "REACT_NEXT")}
+      >
+        React & Next.js ({categoryCounts.reactNext})
+      </CategoryChip>
+      <CategoryChip
+        pressed={matchCategory === "SHOPIFY"}
+        onPressedChange={() => setMatchCategory(matchCategory === "SHOPIFY" ? "ALL" : "SHOPIFY")}
+      >
+        Shopify ({categoryCounts.shopify})
+      </CategoryChip>
+      <CategoryChip
+        pressed={matchCategory === "MAGENTO"}
+        onPressedChange={() => setMatchCategory(matchCategory === "MAGENTO" ? "ALL" : "MAGENTO")}
+      >
+        Magento 2 ({categoryCounts.magento})
+      </CategoryChip>
+      <CategoryChip pressed={matchCategory === "NODE"} onPressedChange={() => setMatchCategory(matchCategory === "NODE" ? "ALL" : "NODE")}>
+        Node.js ({categoryCounts.node})
+      </CategoryChip>
+      <CategoryChip
+        pressed={matchCategory === "SENIOR_LEAD"}
+        onPressedChange={() => setMatchCategory(matchCategory === "SENIOR_LEAD" ? "ALL" : "SENIOR_LEAD")}
+      >
+        Senior & Lead ({categoryCounts.seniorLead})
+      </CategoryChip>
+    </div>
+  );
+}
+
+function PipelineViewTabs(props: PipelineFiltersProps) {
+  const { pipelineView, setPipelineView, setActiveTab, pendingCount, evaluatedCount, appliedCount } = props;
+
+  return (
+    <Tabs
+      value={pipelineView}
+      onValueChange={(value) => {
+        if (value === "pending" || value === "evaluated" || value === "manual") {
+          if (value === "evaluated") setActiveTab("pipeline");
+          setPipelineView(value);
+        }
+      }}
+      className="w-full min-w-0"
+    >
+      <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 sm:grid-cols-4">
+        <TabsTrigger value="pending" className="min-w-0 px-2 py-2">
+          <span className="truncate">Pending ({pendingCount})</span>
+        </TabsTrigger>
+        <TabsTrigger value="evaluated" className="min-w-0 px-2 py-2">
+          <span className="truncate">Evaluated ({evaluatedCount})</span>
+        </TabsTrigger>
+        <button
+          type="button"
+          className="inline-flex min-w-0 items-center justify-center whitespace-normal rounded-sm px-2 py-2 text-xs font-medium text-muted-foreground ring-offset-background transition-all hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"
+          onClick={() => setActiveTab("applied")}
+        >
+          <span className="truncate">Applied ({appliedCount})</span>
+        </button>
+        <TabsTrigger value="manual" className="min-w-0 px-2 py-2">
+          <span className="truncate">Manual Job</span>
+        </TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
+}
+
+function PrimaryFilterRow(props: PipelineFiltersProps) {
   const {
-    pipelineView,
-    setPipelineView,
-    setActiveTab,
-    pendingCount,
-    evaluatedCount,
-    appliedCount,
     searchQuery,
     setSearchQuery,
-    matchCategory,
-    setMatchCategory,
-    categoryCounts,
     marketLane,
     setMarketLane,
     bulkLaneCount,
@@ -97,220 +179,175 @@ function PipelineFiltersPanel(props: PipelineFiltersProps) {
     setModelFilter,
   } = props;
 
-  const showJobFilters = pipelineView !== "manual";
-
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-1 rounded-md bg-muted/50 p-1 sm:grid-cols-4">
-        <Button
-          type="button"
-          size="sm"
-          variant={pipelineView === "pending" ? "secondary" : "ghost"}
-          className="h-auto min-h-9 whitespace-normal px-2 py-2 text-xs sm:text-sm"
-          onClick={() => setPipelineView("pending")}
-        >
-          Pending ({pendingCount})
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={pipelineView === "evaluated" ? "secondary" : "ghost"}
-          className="h-auto min-h-9 whitespace-normal px-2 py-2 text-xs sm:text-sm"
-          onClick={() => {
-            setActiveTab("pipeline");
-            setPipelineView("evaluated");
-          }}
-        >
-          Evaluated ({evaluatedCount})
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="h-auto min-h-9 whitespace-normal px-2 py-2 text-xs sm:text-sm"
-          onClick={() => setActiveTab("applied")}
-        >
-          Applied ({appliedCount})
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={pipelineView === "manual" ? "secondary" : "ghost"}
-          className="h-auto min-h-9 whitespace-normal px-2 py-2 text-xs sm:text-sm"
-          onClick={() => setPipelineView("manual")}
-        >
-          Manual Job
-        </Button>
-      </div>
-
-      {showJobFilters && (
+    <div className="flex flex-wrap items-end gap-2 md:gap-3">
+      <div className="w-full min-w-0 flex-1 basis-[min(100%,14rem)] sm:basis-[min(100%,18rem)]">
+        <Label className="mb-1.5 block text-xs text-muted-foreground">Search</Label>
         <Input
           type="search"
-          placeholder="Filter by title, company, or city..."
+          placeholder="Title, company, or city…"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full"
+          className="w-full min-w-0"
         />
-      )}
+      </div>
 
-      {showJobFilters && (
-        <>
-          <Collapsible defaultOpen className="rounded-md border border-border p-3">
-            <CollapsibleTrigger className="flex w-full items-center justify-between text-sm font-medium text-foreground">
-              <span className="inline-flex items-center gap-2">
-                <Filter className="size-4 text-muted-foreground" />
-                Match categories
-              </span>
-              <ChevronDown className="size-4 text-muted-foreground" />
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-3 flex flex-wrap gap-2">
-              <CategoryChip pressed={matchCategory === "ALL"} onPressedChange={() => setMatchCategory("ALL")}>
-                All ({categoryCounts.all})
-              </CategoryChip>
-              <CategoryChip
-                pressed={matchCategory === "BEST_MATCH"}
-                onPressedChange={() => setMatchCategory(matchCategory === "BEST_MATCH" ? "ALL" : "BEST_MATCH")}
-                className="data-[state=on]:border-primary/50 data-[state=on]:text-primary"
-              >
-                <Star className="size-3.5" fill={matchCategory === "BEST_MATCH" ? "currentColor" : "none"} />
-                Best ({categoryCounts.bestMatch})
-              </CategoryChip>
-              <CategoryChip
-                pressed={matchCategory === "REACT_NEXT"}
-                onPressedChange={() => setMatchCategory(matchCategory === "REACT_NEXT" ? "ALL" : "REACT_NEXT")}
-              >
-                React & Next.js ({categoryCounts.reactNext})
-              </CategoryChip>
-              <CategoryChip
-                pressed={matchCategory === "SHOPIFY"}
-                onPressedChange={() => setMatchCategory(matchCategory === "SHOPIFY" ? "ALL" : "SHOPIFY")}
-              >
-                Shopify ({categoryCounts.shopify})
-              </CategoryChip>
-              <CategoryChip
-                pressed={matchCategory === "MAGENTO"}
-                onPressedChange={() => setMatchCategory(matchCategory === "MAGENTO" ? "ALL" : "MAGENTO")}
-              >
-                Magento 2 ({categoryCounts.magento})
-              </CategoryChip>
-              <CategoryChip pressed={matchCategory === "NODE"} onPressedChange={() => setMatchCategory(matchCategory === "NODE" ? "ALL" : "NODE")}>
-                Node.js ({categoryCounts.node})
-              </CategoryChip>
-              <CategoryChip
-                pressed={matchCategory === "SENIOR_LEAD"}
-                onPressedChange={() => setMatchCategory(matchCategory === "SENIOR_LEAD" ? "ALL" : "SENIOR_LEAD")}
-              >
-                Senior & Lead ({categoryCounts.seniorLead})
-              </CategoryChip>
-            </CollapsibleContent>
-          </Collapsible>
+      <div className="w-full min-w-0 flex-1 basis-[min(100%,10rem)] sm:w-auto sm:min-w-[9.5rem] sm:max-w-[14rem]">
+        <Label className="mb-1.5 block text-xs text-muted-foreground">Market</Label>
+        <Select
+          value={marketLane}
+          onValueChange={(lane) => {
+            const next = lane as MarketLane;
+            setMarketLane(next);
+            saveMarketLane(next);
+          }}
+        >
+          <SelectTrigger className="w-full min-w-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="BULK">US / Intl ({bulkLaneCount})</SelectItem>
+            <SelectItem value="POLAND">Poland · manual ({polandCount})</SelectItem>
+            <SelectItem value="ALL">All markets ({marketFacetTotal})</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
-          <Collapsible defaultOpen className="rounded-md border border-border p-3">
-            <CollapsibleTrigger className="flex w-full items-center justify-between text-sm font-medium text-foreground">
-              Market & location
-              <ChevronDown className="size-4 text-muted-foreground" />
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-3 flex flex-col gap-3">
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    ["BULK", `US / Intl (${bulkLaneCount})`],
-                    ["POLAND", `Poland · manual (${polandCount})`],
-                    ["ALL", `All (${marketFacetTotal})`],
-                  ] as const
-                ).map(([lane, label]) => (
-                  <CategoryChip
-                    key={lane}
-                    pressed={marketLane === lane}
-                    onPressedChange={() => {
-                      setMarketLane(lane);
-                      saveMarketLane(lane);
-                    }}
-                  >
-                    {label}
-                  </CategoryChip>
-                ))}
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="flex flex-col gap-1.5">
-                  <Label>Country</Label>
-                  <Select value={countryFilter} onValueChange={setCountryFilter}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="All countries" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ALL">All countries ({currentListCount})</SelectItem>
-                      {countryOptions.map(([country, count]) => (
-                        <SelectItem key={country} value={country}>
-                          {country} ({count})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label>Technology</Label>
-                  <Select value={technologyFilter || "__all__"} onValueChange={(v) => setTechnologyFilter(v === "__all__" ? "" : v)}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="All technologies" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">All technologies</SelectItem>
-                      {technologyOptions.map((technology) => (
-                        <SelectItem key={technology} value={technology}>{technology}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
+      <div className="w-full min-w-0 flex-1 basis-[min(100%,10rem)] sm:w-auto sm:min-w-[9.5rem] sm:max-w-[14rem]">
+        <Label className="mb-1.5 block text-xs text-muted-foreground">Country</Label>
+        <Select value={countryFilter} onValueChange={setCountryFilter}>
+          <SelectTrigger className="w-full min-w-0">
+            <SelectValue placeholder="All countries" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All countries ({currentListCount})</SelectItem>
+            {countryOptions.map(([country, count]) => (
+              <SelectItem key={country} value={country}>
+                {country} ({count})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
-          <div className="rounded-md border border-border p-3">
-            <Label className="mb-2 block">Work model</Label>
-            <div className="flex flex-wrap gap-2">
-              {(["ALL", "Remote", "Hybrid", "Office"] as const).map((m) => (
-                <CategoryChip key={m} pressed={modelFilter === m} onPressedChange={() => setModelFilter(m)}>
-                  {m}
-                </CategoryChip>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
+      <div className="w-full min-w-0 flex-1 basis-[min(100%,10rem)] sm:w-auto sm:min-w-[9.5rem] sm:max-w-[14rem]">
+        <Label className="mb-1.5 block text-xs text-muted-foreground">Technology</Label>
+        <Select value={technologyFilter || "__all__"} onValueChange={(v) => setTechnologyFilter(v === "__all__" ? "" : v)}>
+          <SelectTrigger className="w-full min-w-0">
+            <SelectValue placeholder="All technologies" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All technologies</SelectItem>
+            {technologyOptions.map((technology) => (
+              <SelectItem key={technology} value={technology}>{technology}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="w-full min-w-0 sm:w-auto">
+        <Label className="mb-1.5 block text-xs text-muted-foreground">Work model</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {(["ALL", "Remote", "Hybrid", "Office"] as const).map((m) => (
+            <CategoryChip key={m} pressed={modelFilter === m} onPressedChange={() => setModelFilter(m)}>
+              {m}
+            </CategoryChip>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
 
-export function PipelineFilters(props: PipelineFiltersProps) {
-  const [sheetOpen, setSheetOpen] = useState(false);
+function MoreFiltersSection(props: PipelineFiltersProps) {
+  const { matchCategory, setMatchCategory, categoryCounts } = props;
+  const [open, setOpen] = useState(false);
+  const activeChip = matchCategory !== "ALL";
 
   return (
-    <>
-      <div className={cn("lg:hidden", props.className)}>
-        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-          <SheetTrigger asChild>
-            <Button variant="outline" className="w-full justify-center">
-              <SlidersHorizontal className="size-4" />
-              Filters & views
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="overflow-y-auto">
-            <SheetHeader>
-              <SheetTitle>Search & filters</SheetTitle>
-            </SheetHeader>
-            <PipelineFiltersPanel {...props} />
-          </SheetContent>
-        </Sheet>
-      </div>
-      <aside
-        className={cn(
-          "hidden min-w-0 lg:block lg:w-72 xl:w-80 shrink-0 rounded-md border border-border bg-muted/20 p-3 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:overflow-x-hidden",
-          props.className
+    <Collapsible open={open} onOpenChange={setOpen} className="min-w-0">
+      <CollapsibleTrigger asChild>
+        <Button type="button" variant="ghost" size="sm" className="h-8 gap-1.5 px-2 text-muted-foreground">
+          <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
+          More filters
+          {activeChip && <span className="rounded bg-primary/15 px-1.5 text-[10px] text-primary">1 active</span>}
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="pt-2">
+        <p className="mb-2 text-xs text-muted-foreground">Match focus</p>
+        <MatchCategoryChips matchCategory={matchCategory} setMatchCategory={setMatchCategory} categoryCounts={categoryCounts} />
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function DesktopJobFilters(props: PipelineFiltersProps) {
+  return (
+    <div className="hidden min-w-0 flex-col gap-3 md:flex">
+      <PrimaryFilterRow {...props} />
+      <MoreFiltersSection {...props} />
+    </div>
+  );
+}
+
+function MobileJobFilters(props: PipelineFiltersProps) {
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const { searchQuery, setSearchQuery, pipelineView } = props;
+  if (pipelineView === "manual") return null;
+
+  return (
+    <div className="flex min-w-0 flex-col gap-2 md:hidden">
+      <Input
+        type="search"
+        placeholder="Title, company, or city…"
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        className="w-full min-w-0"
+      />
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetTrigger asChild>
+          <Button type="button" variant="outline" size="sm" className="w-full justify-center gap-2">
+            <SlidersHorizontal className="size-4" />
+            Market, location & match filters
+          </Button>
+        </SheetTrigger>
+        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Filters</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 flex flex-col gap-4 pb-4">
+            <PrimaryFilterRow {...props} />
+            <div>
+              <p className="mb-2 text-xs text-muted-foreground">Match focus</p>
+              <MatchCategoryChips
+                matchCategory={props.matchCategory}
+                setMatchCategory={props.setMatchCategory}
+                categoryCounts={props.categoryCounts}
+              />
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
+/** Full-width pipeline toolbar (views + filters) above the job table. */
+export function PipelineFilters(props: PipelineFiltersProps) {
+  const { pipelineView, className } = props;
+  const showJobFilters = pipelineView !== "manual";
+
+  return (
+    <div className={cn("w-full min-w-0 overflow-x-hidden border-b border-border px-4 py-3 md:px-6", className)}>
+      <div className="flex min-w-0 flex-col gap-3">
+        <PipelineViewTabs {...props} />
+        {showJobFilters && (
+          <>
+            <DesktopJobFilters {...props} />
+            <MobileJobFilters {...props} />
+          </>
         )}
-      >
-        <PipelineFiltersPanel {...props} />
-      </aside>
-    </>
+      </div>
+    </div>
   );
 }

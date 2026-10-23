@@ -899,10 +899,10 @@ export function App() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4 p-4 pt-4">
+        <CardContent className="flex flex-col gap-4 p-0">
 
         {/* Stats Strip */}
-        <div className="stats-strip">
+        <div className="stats-strip px-4 md:px-6">
           <div className="stat-box">
             <span className="stat-label">Last Scan Time</span>
             <span className="stat-value" style={{ fontSize: "15px" }}>
@@ -929,9 +929,10 @@ export function App() {
           </div>
         </div>
 
-        <DiscoveryHealth compact refreshKey={status?.lastScan?.lastRun || ''} />
+        <div className="px-4 md:px-6">
+          <DiscoveryHealth compact refreshKey={status?.lastScan?.lastRun || ''} />
+        </div>
 
-        <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
           <PipelineFilters
             pipelineView={pipelineView}
             setPipelineView={setPipelineView}
@@ -968,7 +969,7 @@ export function App() {
             setModelFilter={setModelFilter}
           />
 
-          <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <div className="flex min-w-0 w-full flex-col gap-3 px-4 pb-4 md:px-6">
         {pipelineView === "manual" && (
           <ManualJobBoard
             providerId={selectedProviderId}
@@ -1207,7 +1208,6 @@ export function App() {
         </div>
         {pipelineView === "pending" && automation.toolbar(visibleJobs, filteredJobs.length)}
         {automation.history}
-          </div>
         </div>
         </CardContent>
       </Card>}
