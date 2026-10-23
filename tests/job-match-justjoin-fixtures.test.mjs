@@ -50,7 +50,8 @@ test("JustJoin parser maps requiredSkills to technologies and synthetic descript
   });
   assert.equal(parsed.length, 1);
   assert.deepEqual(parsed[0].technologies, ["Shopify", "Liquid"]);
-  assert.equal(parsed[0].description, syntheticDescriptionFromSkills(["Shopify", "Liquid"]));
+  assert.match(parsed[0].description, /Required skills:\s*\nShopify/);
+  assert.deepEqual(parsed[0].technologies, ["Shopify", "Liquid"]);
 });
 
 test("composeMatchDescription merges stack lines for thin postings", () => {

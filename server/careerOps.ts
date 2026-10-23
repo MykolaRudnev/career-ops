@@ -17,7 +17,7 @@ import { OperationCancelledError, ProcessTimeoutError } from "./process.ts";
 import { generateCoverLetter as generateCoverArtifact } from "./coverLetter.ts";
 import { artifactDirectories } from "./jobArtifacts.ts";
 
-const JOB_MATCH_VERSION = 7;
+const JOB_MATCH_VERSION = 8;
 let localJdIndex = {
   outputStamp: -1,
   expiresAt: 0,

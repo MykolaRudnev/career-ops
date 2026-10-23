@@ -72,15 +72,46 @@ function postedAtMillis(value) {
   return Number.isFinite(time) ? time : undefined;
 }
 
+function mapSkillEntry(skill) {
+  const name = String(skill?.name || skill || '').trim();
+  if (!name) return null;
+  const level = String(skill?.level || skill?.skillLevel || '').trim().toLowerCase() || 'regular';
+  return { name, level };
+}
+
+export function skillsFromJustJoinOffer(offer) {
+  const required = (offer?.requiredSkills || []).map(mapSkillEntry).filter(Boolean);
+  const nice = (offer?.niceToHaveSkills || []).map(mapSkillEntry).filter(Boolean);
+  return { required, nice };
+}
+
 function skillNames(offer) {
-  const required = (offer?.requiredSkills || []).map((skill) => String(skill?.name || skill || '').trim()).filter(Boolean);
-  const nice = (offer?.niceToHaveSkills || []).map((skill) => String(skill?.name || skill || '').trim()).filter(Boolean);
-  return [...new Set([...required, ...nice])];
+  const { required, nice } = skillsFromJustJoinOffer(offer);
+  return [...new Set([...required.map((s) => s.name), ...nice.map((s) => s.name)])];
 }
 
 export function syntheticDescriptionFromSkills(technologies) {
   if (!technologies?.length) return '';
   return `Tech stack:\n${technologies.join('\n')}`;
+}
+
+export function syntheticDescriptionFromSkillGroups(required = [], nice = []) {
+  const lines = [];
+  if (required.length) {
+    lines.push('Required skills:');
+    for (const skill of required) {
+      const level = skill.level && skill.level !== 'regular' ? ` (${skill.level})` : '';
+      lines.push(`${skill.name}${level}`);
+    }
+  }
+  if (nice.length) {
+    lines.push('Nice to have:');
+    for (const skill of nice) {
+      const level = skill.level && !/nice/.test(skill.level) ? ` (${skill.level})` : ' (nice to have)';
+      lines.push(`${skill.name}${level}`);
+    }
+  }
+  return lines.join('\n');
 }
 
 function buildApiUrl(entry, from, { keyword } = {}) {
@@ -113,7 +144,10 @@ export function parseJustJoinResponse(json) {
       const slug = String(offer.slug || '').trim();
       const title = String(offer.title || '').trim();
       if (!slug || !title) return null;
-      const technologies = skillNames(offer);
+      const { required, nice } = skillsFromJustJoinOffer(offer);
+      const technologies = required.map((skill) => skill.name);
+      const requiredTechnologies = required;
+      const niceToHaveTechnologies = nice;
       return {
         title,
         sourceJobId: offer.guid,
@@ -122,7 +156,9 @@ export function parseJustJoinResponse(json) {
         seniority: offer.experienceLevel,
         category: offer.category,
         technologies,
-        description: syntheticDescriptionFromSkills(technologies),
+        requiredTechnologies,
+        niceToHaveTechnologies,
+        description: syntheticDescriptionFromSkillGroups(required, nice) || syntheticDescriptionFromSkills(technologies),
         employmentType: offer.workingTime,
         salary: offer.employmentTypes?.find(s => s.currencySource === 'original') || offer.employmentTypes?.[0],
         expiresAt: offer.expiredAt,

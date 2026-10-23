@@ -1,0 +1,20 @@
+# Minimal profile for job-match regression tests (ranking policy only — no PII).
+evaluation_rules:
+  frontend_ranking:
+    enabled: true
+    weights:
+      primaryRole: 30
+      coreStack: 25
+      responsibilities: 20
+      architecturePerformanceQuality: 10
+      domain: 5
+      seniority: 5
+      niceToHave: 5
+    ceilings:
+      pureFrontend: 98
+      frontendHeavyFullstack: 89
+      balancedFullstack: 78
+      nodeHeavy: 60
+      unconfirmed: 79
+    excluded_primary_stacks: ["Java / Spring", "Python / Django / FastAPI", ".NET / C# / ASP.NET"]
+    acceptable_adjacent: ["Node.js", "CMS and e-commerce platforms", "Technical project and delivery administration"]

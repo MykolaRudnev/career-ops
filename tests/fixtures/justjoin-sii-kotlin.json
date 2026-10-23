@@ -1,0 +1,20 @@
+{
+  "title": "Kotlin Developer (f/m/x)",
+  "company": "Sii",
+  "location": "Poznań",
+  "category": "Java",
+  "url": "https://justjoin.it/job-offer/sii-kotlin-developer-f-m-x-poznan-java-db5d8133",
+  "requiredTechnologies": [
+    { "name": "Kotlin", "level": "advanced" },
+    { "name": "AWS", "level": "advanced" },
+    { "name": "Microservices", "level": "advanced" },
+    { "name": "Kubernetes", "level": "advanced" },
+    { "name": "English", "level": "regular" }
+  ],
+  "niceToHaveTechnologies": [
+    { "name": "React.JS", "level": "nice to have" },
+    { "name": "TypeScript", "level": "nice to have" }
+  ],
+  "technologies": ["Kotlin", "AWS", "Microservices", "Kubernetes", "English"],
+  "description": "Required skills:\nKotlin (advanced)\nAWS (advanced)\nMicroservices (advanced)\nKubernetes (advanced)\nEnglish\n\nNice to have:\nReact.JS (nice to have)\nTypeScript (nice to have)\n\nDesign and implement backend microservices in Kotlin on AWS/Kubernetes."
+}
