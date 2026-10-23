@@ -877,29 +877,29 @@ export function App() {
 
       {/* SECTION 1: SEARCH & PIPELINE */}
       {activeTab === "pipeline" && <Card className="card pipeline-card gap-0 border-border bg-card !p-0 overflow-hidden">
-        <CardHeader className="card-header flex-row flex-wrap items-center justify-between gap-3 space-y-0 border-b border-border px-4 py-4 md:px-6 md:py-5">
+        <CardHeader className="card-header flex-col items-stretch gap-3 space-y-0 border-b border-border p-3 sm:flex-row sm:items-start sm:justify-between">
           <CardTitle className="card-title flex items-center gap-2 text-base font-semibold">
             <Search size={18} /> Section 1 — Search & Pipeline
           </CardTitle>
-          <div className="pipeline-actions flex flex-wrap gap-2">
-            <Button disabled={isScanning || isBulkScanning} onClick={handleRunSearch} title="Quick zero-token scan across all configured portals">
+          <div className="pipeline-actions grid w-full max-w-md grid-cols-2 gap-2 sm:w-auto">
+            <Button className="px-3.5" disabled={isScanning || isBulkScanning} onClick={handleRunSearch} title="Quick zero-token scan across all configured portals">
               {isScanning ? <span className="spinner" /> : <Play size={14} />}
               Run Job Search
             </Button>
-            <Button variant="secondary" className="btn-bulk" disabled={isBulkScanning || isScanning} onClick={handleRunBulkSearch} title="Runs bulk sweep to look for new offers across all portals and ATS sources">
+            <Button className="px-3.5" variant="secondary" disabled={isBulkScanning || isScanning} onClick={handleRunBulkSearch} title="Runs bulk sweep to look for new offers across all portals and ATS sources">
               {isBulkScanning ? <span className="spinner" /> : <Zap size={14} />}
               Bulk Find New Offers
             </Button>
-            <Button variant="outline" disabled={isReranking} onClick={handleRerank} title="Re-score all active jobs and load full JDs for the leading contenders">
+            <Button className="px-3.5" variant="outline" disabled={isReranking} onClick={handleRerank} title="Re-score all active jobs and load full JDs for the leading contenders">
               {isReranking ? <span className="spinner" /> : <RefreshCw size={14} />}
               Re-rank
             </Button>
-            <Button variant="secondary" onClick={loadData}>
+            <Button className="px-3.5" variant="secondary" onClick={loadData}>
               <RefreshCw size={14} /> Refresh Pipeline
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4 p-4 md:gap-6 md:p-6">
+        <CardContent className="flex flex-col gap-3 p-3">
 
         {/* Stats Strip */}
         <div className="stats-strip">

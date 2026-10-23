@@ -1,4 +1,4 @@
-import { ChevronDown, SlidersHorizontal, Star } from "lucide-react";
+import { SlidersHorizontal, Star } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toggle } from "@/components/ui/toggle";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { saveMarketLane, type MarketLane } from "./marketLane";
 import { cn } from "@/lib/utils";
 
@@ -55,11 +54,13 @@ function CategoryChip({
   onPressedChange,
   children,
   className,
+  title,
 }: {
   pressed: boolean;
   onPressedChange: () => void;
   children: ReactNode;
   className?: string;
+  title?: string;
 }) {
   return (
     <Toggle
@@ -67,6 +68,7 @@ function CategoryChip({
       onPressedChange={onPressedChange}
       variant="outline"
       size="sm"
+      title={title}
       className={cn("h-auto min-h-8 max-w-full whitespace-normal px-2.5 py-1.5 text-left text-xs sm:text-sm", className)}
     >
       {children}
@@ -159,7 +161,45 @@ function PipelineViewTabs(props: PipelineFiltersProps) {
   );
 }
 
-function PrimaryFilterRow(props: PipelineFiltersProps) {
+function MarketQuickToggles({
+  marketLane,
+  setMarketLane,
+  bulkLaneCount,
+  polandCount,
+  marketFacetTotal,
+}: Pick<PipelineFiltersProps, "marketLane" | "setMarketLane" | "bulkLaneCount" | "polandCount" | "marketFacetTotal">) {
+  const lanes = (
+    [
+      ["BULK", `US / Intl (${bulkLaneCount})`, "Non-Poland roles — safe for bulk queue"],
+      ["POLAND", `Poland · manual (${polandCount})`, "Poland roles: pick Apply on each row"],
+      ["ALL", `All (${marketFacetTotal})`, "Show every market"],
+    ] as const
+  );
+
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <Label className="text-xs text-muted-foreground">Quick market</Label>
+      <div className="flex flex-wrap gap-2">
+        {lanes.map(([lane, label, title]) => (
+          <CategoryChip
+            key={lane}
+            pressed={marketLane === lane}
+            onPressedChange={() => {
+              setMarketLane(lane);
+              saveMarketLane(lane);
+            }}
+            className={cn("max-w-full")}
+            title={title}
+          >
+            {label}
+          </CategoryChip>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FilterToolbarGrid(props: PipelineFiltersProps) {
   const {
     searchQuery,
     setSearchQuery,
@@ -180,118 +220,107 @@ function PrimaryFilterRow(props: PipelineFiltersProps) {
   } = props;
 
   return (
-    <div className="flex flex-wrap items-end gap-2 md:gap-3">
-      <div className="w-full min-w-0 flex-1 basis-[min(100%,14rem)] sm:basis-[min(100%,18rem)]">
-        <Label className="mb-1.5 block text-xs text-muted-foreground">Search</Label>
-        <Input
-          type="search"
-          placeholder="Title, company, or city…"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full min-w-0"
+    <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-4">
+      <div className="flex min-w-0 flex-col gap-3">
+        <div className="min-w-0">
+          <Label className="mb-1.5 block text-xs text-muted-foreground">Search</Label>
+          <Input
+            type="search"
+            placeholder="Title, company, or city…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full min-w-0"
+          />
+        </div>
+        <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="min-w-0">
+            <Label className="mb-1.5 block text-xs text-muted-foreground">Market</Label>
+            <Select
+              value={marketLane}
+              onValueChange={(lane) => {
+                const next = lane as MarketLane;
+                setMarketLane(next);
+                saveMarketLane(next);
+              }}
+            >
+              <SelectTrigger className="w-full min-w-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="BULK">US / Intl ({bulkLaneCount})</SelectItem>
+                <SelectItem value="POLAND">Poland · manual ({polandCount})</SelectItem>
+                <SelectItem value="ALL">All markets ({marketFacetTotal})</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="min-w-0">
+            <Label className="mb-1.5 block text-xs text-muted-foreground">Country</Label>
+            <Select value={countryFilter} onValueChange={setCountryFilter}>
+              <SelectTrigger className="w-full min-w-0">
+                <SelectValue placeholder="All countries" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All countries ({currentListCount})</SelectItem>
+                {countryOptions.map(([country, count]) => (
+                  <SelectItem key={country} value={country}>
+                    {country} ({count})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="min-w-0">
+            <Label className="mb-1.5 block text-xs text-muted-foreground">Technology</Label>
+            <Select value={technologyFilter || "__all__"} onValueChange={(v) => setTechnologyFilter(v === "__all__" ? "" : v)}>
+              <SelectTrigger className="w-full min-w-0">
+                <SelectValue placeholder="All technologies" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All technologies</SelectItem>
+                {technologyOptions.map((technology) => (
+                  <SelectItem key={technology} value={technology}>{technology}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-3">
+        <MarketQuickToggles
+          marketLane={marketLane}
+          setMarketLane={setMarketLane}
+          bulkLaneCount={bulkLaneCount}
+          polandCount={polandCount}
+          marketFacetTotal={marketFacetTotal}
         />
-      </div>
-
-      <div className="w-full min-w-0 flex-1 basis-[min(100%,10rem)] sm:w-auto sm:min-w-[9.5rem] sm:max-w-[14rem]">
-        <Label className="mb-1.5 block text-xs text-muted-foreground">Market</Label>
-        <Select
-          value={marketLane}
-          onValueChange={(lane) => {
-            const next = lane as MarketLane;
-            setMarketLane(next);
-            saveMarketLane(next);
-          }}
-        >
-          <SelectTrigger className="w-full min-w-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="BULK">US / Intl ({bulkLaneCount})</SelectItem>
-            <SelectItem value="POLAND">Poland · manual ({polandCount})</SelectItem>
-            <SelectItem value="ALL">All markets ({marketFacetTotal})</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="w-full min-w-0 flex-1 basis-[min(100%,10rem)] sm:w-auto sm:min-w-[9.5rem] sm:max-w-[14rem]">
-        <Label className="mb-1.5 block text-xs text-muted-foreground">Country</Label>
-        <Select value={countryFilter} onValueChange={setCountryFilter}>
-          <SelectTrigger className="w-full min-w-0">
-            <SelectValue placeholder="All countries" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All countries ({currentListCount})</SelectItem>
-            {countryOptions.map(([country, count]) => (
-              <SelectItem key={country} value={country}>
-                {country} ({count})
-              </SelectItem>
+        <div className="min-w-0">
+          <Label className="mb-1.5 block text-xs text-muted-foreground">Work model</Label>
+          <div className="flex flex-wrap gap-2">
+            {(["ALL", "Remote", "Hybrid", "Office"] as const).map((m) => (
+              <CategoryChip key={m} pressed={modelFilter === m} onPressedChange={() => setModelFilter(m)}>
+                {m}
+              </CategoryChip>
             ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="w-full min-w-0 flex-1 basis-[min(100%,10rem)] sm:w-auto sm:min-w-[9.5rem] sm:max-w-[14rem]">
-        <Label className="mb-1.5 block text-xs text-muted-foreground">Technology</Label>
-        <Select value={technologyFilter || "__all__"} onValueChange={(v) => setTechnologyFilter(v === "__all__" ? "" : v)}>
-          <SelectTrigger className="w-full min-w-0">
-            <SelectValue placeholder="All technologies" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">All technologies</SelectItem>
-            {technologyOptions.map((technology) => (
-              <SelectItem key={technology} value={technology}>{technology}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="w-full min-w-0 sm:w-auto">
-        <Label className="mb-1.5 block text-xs text-muted-foreground">Work model</Label>
-        <div className="flex flex-wrap gap-1.5">
-          {(["ALL", "Remote", "Hybrid", "Office"] as const).map((m) => (
-            <CategoryChip key={m} pressed={modelFilter === m} onPressedChange={() => setModelFilter(m)}>
-              {m}
-            </CategoryChip>
-          ))}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function MatchFocusSection(props: Pick<PipelineFiltersProps, "matchCategory" | "setMatchCategory" | "categoryCounts">) {
-  const { matchCategory, setMatchCategory, categoryCounts } = props;
-  const [open, setOpen] = useState(true);
-
-  return (
-    <Collapsible open={open} onOpenChange={setOpen} className="min-w-0">
-      <div className="flex flex-wrap items-center gap-2">
-        <CollapsibleTrigger asChild>
-          <Button type="button" variant="ghost" size="sm" className="h-8 gap-1.5 px-2 text-muted-foreground">
-            <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
-            Match focus
-          </Button>
-        </CollapsibleTrigger>
-        {matchCategory !== "ALL" && (
-          <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">Filter active</span>
-        )}
-      </div>
-      <CollapsibleContent className="pt-2">
-        <MatchCategoryChips matchCategory={matchCategory} setMatchCategory={setMatchCategory} categoryCounts={categoryCounts} />
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
-
 function DesktopJobFilters(props: PipelineFiltersProps) {
   return (
     <div className="hidden min-w-0 flex-col gap-3 md:flex">
-      <PrimaryFilterRow {...props} />
-      <MatchFocusSection
-        matchCategory={props.matchCategory}
-        setMatchCategory={props.setMatchCategory}
-        categoryCounts={props.categoryCounts}
-      />
+      <FilterToolbarGrid {...props} />
+      <div className="min-w-0 space-y-2 border-t border-border pt-3">
+        <Label className="text-xs text-muted-foreground">Match focus</Label>
+        <MatchCategoryChips
+          matchCategory={props.matchCategory}
+          setMatchCategory={props.setMatchCategory}
+          categoryCounts={props.categoryCounts}
+        />
+      </div>
     </div>
   );
 }
@@ -310,24 +339,34 @@ function MobileJobFilters(props: PipelineFiltersProps) {
         onChange={(e) => setSearchQuery(e.target.value)}
         className="w-full min-w-0"
       />
-      <MatchFocusSection
-        matchCategory={props.matchCategory}
-        setMatchCategory={props.setMatchCategory}
-        categoryCounts={props.categoryCounts}
+      <MarketQuickToggles
+        marketLane={props.marketLane}
+        setMarketLane={props.setMarketLane}
+        bulkLaneCount={props.bulkLaneCount}
+        polandCount={props.polandCount}
+        marketFacetTotal={props.marketFacetTotal}
       />
+      <div className="space-y-2">
+        <Label className="text-xs text-muted-foreground">Match focus</Label>
+        <MatchCategoryChips
+          matchCategory={props.matchCategory}
+          setMatchCategory={props.setMatchCategory}
+          categoryCounts={props.categoryCounts}
+        />
+      </div>
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetTrigger asChild>
           <Button type="button" variant="outline" size="sm" className="w-full justify-center gap-2">
             <SlidersHorizontal className="size-4" />
-            Market, location & match filters
+            Country, technology & work model
           </Button>
         </SheetTrigger>
         <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>Filters</SheetTitle>
+            <SheetTitle>Location filters</SheetTitle>
           </SheetHeader>
           <div className="mt-4 flex flex-col gap-4 pb-4">
-            <PrimaryFilterRow {...props} />
+            <FilterToolbarGrid {...props} />
           </div>
         </SheetContent>
       </Sheet>
