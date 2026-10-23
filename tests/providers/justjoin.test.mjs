@@ -130,6 +130,17 @@ try {
   }
   if (badShape) pass('justjoin parser throws on bad response shape');
   else fail('justjoin parser should throw on bad response shape');
+
+  const fixtureJobs = await jj.fetch(
+    {
+      name: 'JustJoin Fixture',
+      careers_url: 'https://justjoin.it/job-offers/all-locations',
+      fixture: 'tests/fixtures/justjoin-scan-api.json',
+    },
+    { transport: 'http', fetchJson: async () => { throw new Error('network'); }, fetchText: async () => '' },
+  );
+  if (fixtureJobs.length === 3) pass('justjoin.fetch() loads offline fixture without network');
+  else fail(`justjoin fixture expected 3 jobs, got ${fixtureJobs.length}`);
 } catch (e) {
   fail(`justjoin provider tests crashed: ${e.message}`);
 }

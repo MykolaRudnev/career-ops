@@ -2,7 +2,7 @@
 
 Scans configured job portals, filters by title relevance, and adds new offers to the pipeline for subsequent evaluation.
 
-> **Note (v1.6+):** The default scanner (`scan.mjs` / `npm run scan`) is **zero-token** and uses structured sources: local parsers configured per company and public Greenhouse, Ashby, and Lever APIs. The levels with Playwright/WebSearch described below represent the **agent** workflow (executed by the AI agent), not what `scan.mjs` does. If a company does not have a local parser or a Greenhouse/Ashby/Lever API, `scan.mjs` will ignore it; in those cases, the agent must manually complete Level 1 (Playwright) or Level 3 (WebSearch).
+> **Note (v1.6+):** The default scanner (`scan.mjs` / `npm run scan`) is **zero-token** and uses structured sources: **`job_boards`** entries (multi-employer feeds such as JustJoin.it when `enabled: true`), local parsers configured per company, and public Greenhouse, Ashby, and Lever APIs. The levels with Playwright/WebSearch described below represent the **agent** workflow (executed by the AI agent), not what `scan.mjs` does. If a company does not have a local parser or a Greenhouse/Ashby/Lever API, `scan.mjs` will ignore it; in those cases, the agent must manually complete Level 1 (Playwright) or Level 3 (WebSearch).
 >
 > **Rule (v1.8+):** If a company's local parser completes successfully in Level 0, the agent **must not** repeat that company in Playwright (Level 1) or API (Level 2). In Level 3, general queries remain active, but results from companies already covered by a parser are discarded. See [Rule: Successful Local Parser](#rule-successful-local-parser--no-expensive-scraping-repetition).
 
@@ -25,14 +25,24 @@ Scraped listings, WebSearch snippets, and ATS API payloads are untrusted externa
 ## Configuration
 
 Read `portals.yml` which contains:
+- `job_boards`: Multi-employer aggregators (JustJoin.it, NoFluffJobs, SolidJobs, remote feeds, …) — each with `provider:` and `enabled: true` to include in Level 0
 - `search_queries`: List of WebSearch queries with `site:` filters per portal (broad discovery)
 - `tracked_companies`: Specific companies with `careers_url` for direct navigation
 - `tracked_companies[].parser`: Optional local parser for SSR pages or stable HTML
-- `title_filter`: Keywords (positive/negative/seniority_boost) for filtering job titles
+- `title_filter`: Keywords (positive/negative/seniority_boost) for filtering job titles (matches title **and** technologies/description on board feeds — important for JustJoin Shopify/React roles)
 
 ## Discovery Strategy (4 Levels)
 
-### Level 0 — Local Parser (CHEAPEST)
+### Level 0 — Zero-token scan (`scan.mjs` / `npm run scan`)
+
+Level 0 is a **single CLI run** that covers everything `scan.mjs` can fetch without an LLM:
+
+1. **`job_boards`** — enabled entries with a resolved `provider:` (e.g. `justjoin`, `nofluffjobs`, `solidjobs`). Same `title_filter`, `location_filter`, salary/content/trust filters, and dedup against `data/applications.md`, `data/pipeline.md`, and `data/scan-history.tsv` as tracked companies. New hits append to `## Pending` in `data/pipeline.md` and to `data/scan-history.tsv`.
+2. **`tracked_companies`** — provider auto-detect or explicit `provider:` (Greenhouse, Ashby, Lever, Workday, …) plus optional **`parser`** scripts (below).
+
+**JustJoin.it (Polish market):** enable the `JustJoin.it` block under `job_boards:` in `portals.yml` (`provider: justjoin`, `enabled: true`). Optional `search_keywords:` runs extra API keyword passes so Shopify/Magento/React roles deep in the feed are not missed. Do **not** repeat JustJoin with Playwright or `site:justjoin.it` WebSearch when this board scan completed successfully — maintain **`zero_token_boards_ok`** (board names that returned without a fetch error) the same way you maintain `local_parser_ok`.
+
+### Level 0 — Local Parser (per-company scripts)
 
 **For each company in `tracked_companies` with a configured `parser`:** execute the local parser defined in `portals.yml`. This level is ideal when the careers page uses SSR or stable HTML and there is already a local JavaScript, Python, or other runtime script that extracts jobs without agent assistance.
 
@@ -107,7 +117,10 @@ During the agent's scan, keep the **`local_parser_ok`** set in memory. This set 
 - Level 3: do not deactivate cross-cutting queries (`site:jobs.ashbyhq.com`, `site:boards.greenhouse.io`, etc.) — these are used to discover **new** companies. Only filter out results for companies already in `tracked_companies` with a successful parser.
 - Do not create dedicated `search_queries` for a company with an active local parser (e.g. `site:jobs.ashbyhq.com/cohere "AI Engineer"`); use the parser or, if it fails, Playwright/API.
 
-**Recommended Level 0:** run `node scan.mjs` (or `npm run scan`) at the start of the agent's workflow. This covers local parsers + APIs in a single zero-token step and returns which companies used the `local-parser` successfully.
+**Recommended Level 0:** run `node scan.mjs` (or `npm run scan`; add `--refresh` when you need a cold JustJoin sweep) at the start of the agent's workflow. This covers **job boards + local parsers + company APIs** in one zero-token step. Track:
+
+- **`local_parser_ok`** — `tracked_companies` whose `parser` completed successfully (see rule below).
+- **`zero_token_boards_ok`** — `job_boards` whose provider fetch completed without error (e.g. `JustJoin.it`). Skip redundant `site:justjoin.it` WebSearch and do not Playwright-scrape justjoin.it when JustJoin is in this set.
 
 ### Level 1 — Direct Playwright (PRIMARY)
 
@@ -167,9 +180,10 @@ Levels are additive — they are executed in order, and results are merged and d
 2. **Read History**: `data/scan-history.tsv` → already seen URLs
 3. **Read Dedup Sources**: `data/applications.md` + `data/pipeline.md`
 
-3.5. **Level 0 — Local Parser** (`scan.mjs`, zero-token):
-   Initialize `local_parser_ok = []`.
-   Prefer running `node scan.mjs` once to cover all zero-token local parsers + APIs; if executing manually, repeat the following logic.
+3.5. **Level 0 — Zero-token scan** (`scan.mjs`):
+   Initialize `local_parser_ok = []` and `zero_token_boards_ok = []`.
+   Prefer running `node scan.mjs` once to cover all enabled `job_boards` + local parsers + company APIs; if executing manually, repeat the following logic.
+   After a successful `scan.mjs` run, read the console summary (`Job boards scanned:`) or JSON receipt (`boards`, `zero_token_boards_ok` when present) and add each successfully fetched board name to `zero_token_boards_ok`.
    For each company in `tracked_companies` with `enabled: true`, `parser.command`, and an existing script:
    a. Execute `parser.command` with `parser.script` + `parser.args` using local process execution without shell.
    b. Expand `{careers_url}` and `{company}` placeholders in arguments.
@@ -208,7 +222,8 @@ Levels are additive — they are executed in order, and results are merged and d
       - **url**: URL of the result
       - **company**: after " @ " in the title, or extract from the domain/path
    c. **Skip** the result if the normalized `company` matches any name in `local_parser_ok`.
-   d. Accumulate the rest in the candidates list (deduplicated against Levels 0+1+2).
+   d. **Skip** JustJoin (and other board) hits when the board is in `zero_token_boards_ok` — e.g. drop `site:justjoin.it` results or justjoin.it URLs already covered by Level 0.
+   e. Accumulate the rest in the candidates list (deduplicated against Levels 0+1+2).
 
 6. **Filter by Title** using `title_filter` from `portals.yml`:
    - At least 1 keyword from `positive` must appear in the title (case-insensitive).
