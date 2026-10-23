@@ -2523,6 +2523,9 @@ job_boards:
     careers_url: https://justjoin.it/job-offers/all-locations
     provider: justjoin
     enabled: false
+    # Optional: extra API keyword passes (merged + deduped) so Shopify/Magento/React
+    # roles deep in the 10k feed are not missed when the default sweep ages out.
+    # search_keywords: [Shopify, Liquid, Magento, Hyvä, React, Next.js]
     notes: "Polish tech job board — newest public offers"
 
   - name: NoFluffJobs

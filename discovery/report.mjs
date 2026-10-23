@@ -30,7 +30,7 @@ export async function discoveryReport() {
   const relevant=raw.filter(j=>j.remoteEligibility!=='INDIA_ONLY' && filter(j.title) && (!j.expiresAt || Date.parse(j.expiresAt)>Date.now()));
   const unique=deduplicateJobs(relevant);recordDuplicates(unique);
   for(const j of unique) {
-    const m=analyzeJobMatch({title:j.title,company:j.company,location:j.location},[j.description,...(j.technologies || [])].join('\n'));
+    const m=analyzeJobMatch({title:j.title,company:j.company,location:j.location,url:j.url,technologies:j.technologies}, j.description || '');
     j.match=m.matchClassification;j.rankingCategory=m.rankingCategory;j.compatibilityPercent=m.compatibilityPercent;j.matchReason=m.reason;
   }
   const priority={HIGH:0,REVIEW:1,LOW:2,SKIP:3};

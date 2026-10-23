@@ -59,7 +59,18 @@ function postedAtMillis(value) {
   return Number.isFinite(time) ? time : undefined;
 }
 
-function buildApiUrl(entry, from) {
+function skillNames(offer) {
+  const required = (offer?.requiredSkills || []).map((skill) => String(skill?.name || skill || '').trim()).filter(Boolean);
+  const nice = (offer?.niceToHaveSkills || []).map((skill) => String(skill?.name || skill || '').trim()).filter(Boolean);
+  return [...new Set([...required, ...nice])];
+}
+
+export function syntheticDescriptionFromSkills(technologies) {
+  if (!technologies?.length) return '';
+  return `Tech stack:\n${technologies.join('\n')}`;
+}
+
+function buildApiUrl(entry, from, { keyword } = {}) {
   const apiUrl = entry.api || API_BASE;
   const parsed = assertJustJoinUrl(apiUrl);
   if (parsed.pathname !== '/api/candidate-api/offers') {
@@ -73,7 +84,9 @@ function buildApiUrl(entry, from) {
   parsed.searchParams.set('orderBy', 'descending');
   parsed.searchParams.set('sortBy', 'publishedAt');
   parsed.searchParams.set('keywordType', 'any');
-  parsed.searchParams.set('isPromoted', 'true');
+  if (keyword) parsed.searchParams.set('keyword', String(keyword));
+  // Full feed: promoted-only hid deep non-promoted pages from some installs.
+  if (entry.promoted_only === true) parsed.searchParams.set('isPromoted', 'true');
   return parsed.href;
 }
 
@@ -87,9 +100,19 @@ export function parseJustJoinResponse(json) {
       const slug = String(offer.slug || '').trim();
       const title = String(offer.title || '').trim();
       if (!slug || !title) return null;
+      const technologies = skillNames(offer);
       return {
         title,
-        sourceJobId:offer.guid, applyUrl:offer.applyUrl, workModel:offer.workplaceType, seniority:offer.experienceLevel, technologies:(offer.requiredSkills || []).map(s=>s.name), employmentType:offer.workingTime, salary:offer.employmentTypes?.find(s=>s.currencySource==='original') || offer.employmentTypes?.[0], expiresAt:offer.expiredAt,
+        sourceJobId: offer.guid,
+        applyUrl: offer.applyUrl,
+        workModel: offer.workplaceType,
+        seniority: offer.experienceLevel,
+        category: offer.category,
+        technologies,
+        description: syntheticDescriptionFromSkills(technologies),
+        employmentType: offer.workingTime,
+        salary: offer.employmentTypes?.find(s => s.currencySource === 'original') || offer.employmentTypes?.[0],
+        expiresAt: offer.expiredAt,
         url: `${JOB_BASE}${slug}`,
         company: String(offer.companyName || '').trim(),
         location: normalizeLocation(offer),
@@ -97,6 +120,38 @@ export function parseJustJoinResponse(json) {
       };
     })
     .filter(Boolean);
+}
+
+function dedupeByUrl(jobs) {
+  const seen = new Set();
+  const out = [];
+  for (const job of jobs) {
+    const key = String(job.url || '').trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(job);
+  }
+  return out;
+}
+
+async function fetchOfferPages(entry, ctx, { keyword } = {}) {
+  const jobs = [];
+  let from = 0;
+  const maxPages = Number(entry.max_pages || MAX_PAGES);
+  for (let page = 0; page < maxPages; page++) {
+    const url = buildApiUrl(entry, from, { keyword });
+    const json = await ctx.fetchJson(url, { redirect: 'error' });
+    const parsed = parseJustJoinResponse(json);
+    jobs.push(...parsed);
+
+    const totalItems = Number(json?.meta?.totalItems);
+    if (Number.isFinite(totalItems) && from + parsed.length >= totalItems) break;
+    const next = json?.meta?.next?.cursor;
+    if (next == null || parsed.length === 0) break;
+    from = Number(next);
+    if (!Number.isFinite(from)) break;
+  }
+  return jobs;
 }
 
 /** @type {Provider} */
@@ -110,22 +165,13 @@ export default {
   async fetch(entry, ctx) {
     if (!detectUrl(entry)) throw new Error('justjoin: careers_url or api must be a trusted justjoin.it URL');
 
-    const jobs = [];
-    let from = 0;
-    const maxPages = Number(entry.max_pages || MAX_PAGES);
-    for (let page = 0; page < maxPages; page++) {
-      const url = buildApiUrl(entry, from);
-      const json = await ctx.fetchJson(url, { redirect: 'error' });
-      const parsed = parseJustJoinResponse(json);
-      jobs.push(...parsed);
-
-      const totalItems = Number(json?.meta?.totalItems);
-      if (Number.isFinite(totalItems) && from + parsed.length >= totalItems) break;
-      const next = json?.meta?.next?.cursor;
-      if (next == null || parsed.length === 0) break;
-      from = Number(next);
-      if (!Number.isFinite(from)) break;
+    const jobs = await fetchOfferPages(entry, ctx);
+    const keywords = Array.isArray(entry.search_keywords)
+      ? entry.search_keywords.map((value) => String(value || '').trim()).filter(Boolean)
+      : [];
+    for (const keyword of keywords) {
+      jobs.push(...await fetchOfferPages(entry, ctx, { keyword }));
     }
-    return jobs;
+    return dedupeByUrl(jobs);
   },
 };

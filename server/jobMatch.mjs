@@ -197,6 +197,28 @@ function stackBits(textWithoutNative) {
   };
 }
 
+function jobTechnologiesList(job) {
+  const raw = [job?.technologies, job?.techStack, job?.requiredSkills].flatMap((value) => (Array.isArray(value) ? value : []));
+  return unique(raw.flatMap((entry) => {
+    if (typeof entry === "string") return entry.trim() ? [entry.trim()] : [];
+    if (entry && typeof entry === "object" && typeof entry.name === "string" && entry.name.trim()) return [entry.name.trim()];
+    return [];
+  }));
+}
+
+/** Merge provider tech stacks (JustJoin requiredSkills, etc.) with prose for scoring. */
+export function composeMatchDescription(job, fullDescription = "") {
+  const url = job?.url || "";
+  const prose = sanitizeJobDescription(String(fullDescription || job?.description || job?.extra || ""), url);
+  const techs = jobTechnologiesList(job);
+  if (!techs.length) return prose;
+  const techBlock = techs.join("\n");
+  const proseHasStack = techs.some((tech) => prose.toLowerCase().includes(tech.toLowerCase()));
+  if (prose.length >= 80 && proseHasStack) return prose;
+  if (prose.length >= 80) return `${prose}\n\nTech stack:\n${techBlock}`;
+  return `Tech stack:\n${techBlock}${prose ? `\n\n${prose}` : ""}`;
+}
+
 export function sanitizeJobDescription(text, url = "") {
   let raw = String(text || "");
   if (/^https?:\/\/(?:www\.)?justjoin\.it\//i.test(url)) {
@@ -211,14 +233,15 @@ export function sanitizeJobDescription(text, url = "") {
 }
 
 export function jobMatchInputKey(job, description) {
+  const composed = composeMatchDescription(job, description);
   return JSON.stringify([job.id || "", normalizeUrl(job.url || ""),
-    createHash("sha256").update(sanitizeJobDescription(description, job.url)).digest("hex"),
-    job.title, job.location, job.extra, jobMatchPolicyKey()]);
+    createHash("sha256").update(composed).digest("hex"),
+    job.title, job.location, job.extra, jobTechnologiesList(job).join(","), jobMatchPolicyKey()]);
 }
 
 // Final display gate: a label cannot survive on a cached/inferred claim alone.
 export function validateRequirementEvidence(result, job, description) {
-  const text = `${job.title || ""}\n${sanitizeJobDescription(description || job.extra, job.url)}`;
+  const text = `${job.title || ""}\n${composeMatchDescription(job, description || job.extra)}`;
   const supported = new Set((result.currentJobEvidence || [])
     .filter(item => item.evidence && text.includes(item.evidence)).map(item => item.skill));
   const backed = skills => skills?.length > 0 && skills.every(skill => supported.has(skill));
@@ -241,12 +264,12 @@ export function formatMatchReason(classification, reason, compatibilityPercent) 
  */
 export function analyzeJobMatch(job, fullDescription = "") {
   const title = String(job?.title || "");
-  const fallback = String(job?.extra || "");
-  const description = sanitizeJobDescription(fullDescription || fallback, job?.url);
+  const description = composeMatchDescription(job, fullDescription);
   const allText = `${title}\n${description}`;
   const titleMasked = maskReactNative(title);
   const allMasked = maskReactNative(allText);
   const hasFullJd = String(fullDescription || "").trim().length >= 80;
+  const hasStackSignal = jobTechnologiesList(job).length >= 2 && (/\breact\b/i.test(allMasked) || /\bnext\.?js\b/i.test(allMasked) || /\bshopify\b/i.test(allMasked));
 
   const nativeSignal = requirementSignal(title, description, MOBILE_CORE);
   const bits = stackBits(allMasked);
@@ -304,7 +327,9 @@ export function analyzeJobMatch(job, fullDescription = "") {
   const nonEngineeringTitle = /\b(qa|quality assurance|tester|analyst|analityk|project manager|delivery manager|product owner|coo|director|engineering manager)\b/i.test(title);
   const alternateFrontendTitle = /\b(vue(?:\.js)?|angular|svelte)\b/i.test(title) && !/\breact|next\.?(?:js)?\b/i.test(titleMasked);
   const fullstack = /\bfull[ -]?stack\b/i.test(title);
-  const dedicatedFrontendTitle = /\b(?:senior\s+|lead\s+|staff\s+|principal\s+|mid\s+)?(?:front[ -]?end\s+(?:developer|engineer|architect|lead|specialist)|(?:react|next\.?(?:js)?)\s+(?:developer|engineer))\b/i.test(titleMasked);
+  const dedicatedFrontendTitle = /\b(?:senior\s+|lead\s+|staff\s+|principal\s+|mid\s+)?(?:front[ -]?end\s+(?:developer|engineer|architect|lead|specialist)|(?:react|next\.?(?:js)?)\s+(?:developer|engineer))\b/i.test(titleMasked)
+    || /\bfront[ -]?end\s+(?:developer|engineer)\b.{0,48}\b(?:web|ui)\s+designer\b/i.test(titleMasked)
+    || /\b(?:web|ui)\s+designer\b.{0,48}\bfront[ -]?end\s+(?:developer|engineer)\b/i.test(titleMasked);
   const pureFrontendTitle = (dedicatedFrontendTitle || (frontendTitle && !webAppTitle && !productEngineer))
     && !fullstack && !/\b(?:backend|back-end|node(?:\.js)?)\s+(?:developer|engineer)/i.test(title);
   const explicitFrontendHeavy = /\b(frontend[ -](?:heavy|focused|leaning)|front[ -]?end focus|primarily front[ -]?end|mostly front[ -]?end|frontend-dominant)\b/i.test(allText);
@@ -500,12 +525,19 @@ export function analyzeJobMatch(job, fullDescription = "") {
   }
 
   const policy = rankingPolicy();
+  const heuristicClassification = classification;
+  const heuristicCompatibility = compatibilityPercent;
   let scoreBreakdown;
   let rankingCategory = mobileDominance ? "mobile" : backendDominance ? "backend-heavy" : "unconfirmed";
   if (policy?.enabled) {
     const nodeTitle = /\b(?:node\.?js|nestjs)\b/i.test(title) && !fullstack && !pureFrontendTitle;
     const mixed = fullstack || backendOwnership || nodeTitle;
-    const confirmedFrontend = frontendDominance && (frontendActions.length > 0 || strongFrontendHits.length >= 2) && (webCore || ecommerceHandsOn) && !nonEngineeringTitle;
+    const stackConfirmsFrontend = hasStackSignal && webCore && !ecommerce.length;
+    const confirmedFrontend = (frontendDominance || stackConfirmsFrontend)
+      && (frontendActions.length > 0 || strongFrontendHits.length >= 2 || stackConfirmsFrontend)
+      && (webCore || ecommerceHandsOn) && !nonEngineeringTitle;
+    const ecommercePrimaryTitle = ecommerce.length > 0 && handsOnTechnicalTitle && !nonEngineeringTitle
+      && /\b(shopify|magento|hyv[aä]|liquid|adobe commerce|e-?commerce)\b/i.test(title);
     const primary = confirmedFrontend && !mixed;
     const frontendHeavy = mixed && confirmedFrontend && !backendDominance;
     rankingCategory = mobileDominance ? "mobile" : backendDominance || nodeTitle ? "backend-heavy"
@@ -536,7 +568,7 @@ export function analyzeJobMatch(job, fullDescription = "") {
       weight: weights[key], earned: Math.round(weights[key] * fraction * 10) / 10
     }]));
     const rawScore = Math.round(Object.values(scoreBreakdown).reduce((sum, part) => sum + part.earned, 0));
-    const ceilings = { pureFrontend: 98, webApplication: 88, frontendHeavyFullstack: 89, balancedFullstack: 78, nodeHeavy: 60, unconfirmed: 79, ...policy.ceilings };
+    const ceilings = { pureFrontend: 98, webApplication: 88, frontendHeavyFullstack: 89, balancedFullstack: 78, nodeHeavy: 60, unconfirmed: 79, ecommerceStorefront: 95, ...policy.ceilings };
     const blocked = mobileDominance || mandatoryBackend.length || languageSignals.length || alternateFrontendTitle || pureBackendTitle
       || (backendDominance && !(backendPct === 50 && frontendPct === 50 && !heavyBackendOwnership));
     if (!blocked) {
@@ -561,13 +593,23 @@ export function analyzeJobMatch(job, fullDescription = "") {
     // A dedicated React/Next title with no JD yet is the primary archetype.
     // Keep it out of BEST MATCH until the description confirms scope.
     const descriptionThin = String(fullDescription || "").trim().length < 40;
-    if (!blocked && descriptionThin && pureFrontendTitle && (titleBits.react || titleBits.next)) {
-      compatibilityPercent = Math.max(compatibilityPercent, 84);
-      classification = "STRONG MATCH";
+    if (!blocked && descriptionThin && pureFrontendTitle && (titleBits.react || titleBits.next || stackConfirmsFrontend)) {
+      compatibilityPercent = Math.max(compatibilityPercent, stackConfirmsFrontend ? 88 : 84);
+      classification = stackConfirmsFrontend && compatibilityPercent >= 85 ? "BEST MATCH" : "STRONG MATCH";
       recommendation = "APPLY";
       tier = "A";
       rankingCategory = "pure-frontend";
-      reason = "react title | preliminary frontend match until the full JD is loaded";
+      reason = stackConfirmsFrontend
+        ? "provider tech stack confirms React / Next.js scope | full JD optional"
+        : "react title | preliminary frontend match until the full JD is loaded";
+    }
+    if (!blocked && (ecommerceHandsOn || heuristicClassification === "BEST MATCH") && (ecommercePrimaryTitle || heuristicClassification === "BEST MATCH")) {
+      rankingCategory = "ecommerce-storefront";
+      compatibilityPercent = Math.min(ceilings.ecommerceStorefront, Math.max(compatibilityPercent, heuristicCompatibility, 90));
+      classification = "BEST MATCH";
+      recommendation = "APPLY";
+      tier = "A";
+      reason = `${ecommerce.join(" + ")} | direct commercial specialization`;
     }
     scoreBreakdown.rawScore = rawScore;
     scoreBreakdown.adjustment = compatibilityPercent - rawScore;
@@ -662,7 +704,7 @@ export function analyzeJobMatch(job, fullDescription = "") {
       mandatoryLanguages: languageSignals.map((signal) => signal.name),
       requiredYears: unique([...allText.matchAll(/\b(?:minimum|min\.?|at\s+least)?\s*(\d{1,2})\+?\s+years?(?:\s+of)?\s+(?:commercial |professional |relevant )?(?:React |TypeScript )?experience\b/gi)].map((match) => Number(match[1]))).sort((a, b) => b - a)
     },
-    evaluatedFrom: hasFullJd ? "full-jd" : "pipeline-summary",
+    evaluatedFrom: hasFullJd ? "full-jd" : (hasStackSignal ? "provider-stack" : "pipeline-summary"),
     evaluatedAt: new Date().toISOString()
   }, job, description);
 }

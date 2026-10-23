@@ -3009,7 +3009,7 @@ async function main() {
           }
         }
 
-        if (!titleFilter(job.title)) {
+        if (!titleFilter(job)) {
           totalFilteredTitle++;
           continue;
         }

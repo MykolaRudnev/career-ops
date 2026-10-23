@@ -203,6 +203,15 @@ export function compilePositiveKeyword(keyword) {
  * @param {{positive?: unknown, negative?: unknown}} [titleFilter]
  * @returns {(title: string) => boolean}
  */
+export function jobTitleFilterText(job) {
+  if (job == null) return '';
+  if (typeof job === 'string') return job;
+  const title = String(job.title ?? '');
+  const technologies = Array.isArray(job.technologies) ? job.technologies.join(' ') : '';
+  const description = typeof job.description === 'string' ? job.description : '';
+  return [title, technologies, description].filter(Boolean).join(' ');
+}
+
 export function buildTitleFilter(titleFilter) {
   // Normalize defensively: a malformed title_filter (a null, numeric, or otherwise
   // non-string entry in the YAML) must not crash the scan via k.toLowerCase().
@@ -217,16 +226,8 @@ export function buildTitleFilter(titleFilter) {
   const positive = normalize(titleFilter?.positive, compilePositiveKeyword);
   const negative = normalize(titleFilter?.negative, compileKeyword);
 
-  return (title) => {
-    // String(), not `title || ''`: openrouter-runner used String(title ?? '')
-    // before both paths were merged here, and scan.mjs threw on a truthy
-    // non-string. Consolidating on scan.mjs's version would have carried that
-    // throw onto a path that never had it, where it aborts jobs.filter and
-    // drops a whole company's results for one malformed title.
-    const lower = String(title ?? '').toLowerCase();
-    // An empty positive list is "no positive constraint", not "match nothing":
-    // a negative-only title_filter is a legitimate config that rejects a few
-    // roles and keeps the rest.
+  return (titleOrJob) => {
+    const lower = jobTitleFilterText(titleOrJob).toLowerCase();
     const hasPositive = positive.length === 0 || positive.some(m => m(lower));
     const hasNegative = negative.some(m => m(lower));
     return hasPositive && !hasNegative;
