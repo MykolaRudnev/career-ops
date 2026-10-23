@@ -259,22 +259,24 @@ function PrimaryFilterRow(props: PipelineFiltersProps) {
   );
 }
 
-function MoreFiltersSection(props: PipelineFiltersProps) {
+function MatchFocusSection(props: Pick<PipelineFiltersProps, "matchCategory" | "setMatchCategory" | "categoryCounts">) {
   const { matchCategory, setMatchCategory, categoryCounts } = props;
-  const [open, setOpen] = useState(false);
-  const activeChip = matchCategory !== "ALL";
+  const [open, setOpen] = useState(true);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="min-w-0">
-      <CollapsibleTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="h-8 gap-1.5 px-2 text-muted-foreground">
-          <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
-          More filters
-          {activeChip && <span className="rounded bg-primary/15 px-1.5 text-[10px] text-primary">1 active</span>}
-        </Button>
-      </CollapsibleTrigger>
+      <div className="flex flex-wrap items-center gap-2">
+        <CollapsibleTrigger asChild>
+          <Button type="button" variant="ghost" size="sm" className="h-8 gap-1.5 px-2 text-muted-foreground">
+            <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
+            Match focus
+          </Button>
+        </CollapsibleTrigger>
+        {matchCategory !== "ALL" && (
+          <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">Filter active</span>
+        )}
+      </div>
       <CollapsibleContent className="pt-2">
-        <p className="mb-2 text-xs text-muted-foreground">Match focus</p>
         <MatchCategoryChips matchCategory={matchCategory} setMatchCategory={setMatchCategory} categoryCounts={categoryCounts} />
       </CollapsibleContent>
     </Collapsible>
@@ -285,7 +287,11 @@ function DesktopJobFilters(props: PipelineFiltersProps) {
   return (
     <div className="hidden min-w-0 flex-col gap-3 md:flex">
       <PrimaryFilterRow {...props} />
-      <MoreFiltersSection {...props} />
+      <MatchFocusSection
+        matchCategory={props.matchCategory}
+        setMatchCategory={props.setMatchCategory}
+        categoryCounts={props.categoryCounts}
+      />
     </div>
   );
 }
@@ -296,13 +302,18 @@ function MobileJobFilters(props: PipelineFiltersProps) {
   if (pipelineView === "manual") return null;
 
   return (
-    <div className="flex min-w-0 flex-col gap-2 md:hidden">
+    <div className="flex min-w-0 flex-col gap-3 md:hidden">
       <Input
         type="search"
         placeholder="Title, company, or city…"
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
         className="w-full min-w-0"
+      />
+      <MatchFocusSection
+        matchCategory={props.matchCategory}
+        setMatchCategory={props.setMatchCategory}
+        categoryCounts={props.categoryCounts}
       />
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetTrigger asChild>
@@ -317,14 +328,6 @@ function MobileJobFilters(props: PipelineFiltersProps) {
           </SheetHeader>
           <div className="mt-4 flex flex-col gap-4 pb-4">
             <PrimaryFilterRow {...props} />
-            <div>
-              <p className="mb-2 text-xs text-muted-foreground">Match focus</p>
-              <MatchCategoryChips
-                matchCategory={props.matchCategory}
-                setMatchCategory={props.setMatchCategory}
-                categoryCounts={props.categoryCounts}
-              />
-            </div>
           </div>
         </SheetContent>
       </Sheet>
@@ -338,7 +341,7 @@ export function PipelineFilters(props: PipelineFiltersProps) {
   const showJobFilters = pipelineView !== "manual";
 
   return (
-    <div className={cn("w-full min-w-0 overflow-x-hidden border-b border-border px-4 py-3 md:px-6", className)}>
+    <div className={cn("w-full min-w-0 overflow-x-hidden border-b border-border py-3", className)}>
       <div className="flex min-w-0 flex-col gap-3">
         <PipelineViewTabs {...props} />
         {showJobFilters && (

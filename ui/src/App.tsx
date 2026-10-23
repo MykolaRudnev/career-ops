@@ -876,8 +876,8 @@ export function App() {
       </div>}
 
       {/* SECTION 1: SEARCH & PIPELINE */}
-      {activeTab === "pipeline" && <Card className="card pipeline-card gap-0 border-border bg-card py-0">
-        <CardHeader className="card-header flex-row flex-wrap items-center justify-between gap-3 space-y-0 border-b border-border">
+      {activeTab === "pipeline" && <Card className="card pipeline-card gap-0 border-border bg-card !p-0 overflow-hidden">
+        <CardHeader className="card-header flex-row flex-wrap items-center justify-between gap-3 space-y-0 border-b border-border px-4 py-4 md:px-6 md:py-5">
           <CardTitle className="card-title flex items-center gap-2 text-base font-semibold">
             <Search size={18} /> Section 1 — Search & Pipeline
           </CardTitle>
@@ -899,10 +899,10 @@ export function App() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4 p-0">
+        <CardContent className="flex flex-col gap-4 p-4 md:gap-6 md:p-6">
 
         {/* Stats Strip */}
-        <div className="stats-strip px-4 md:px-6">
+        <div className="stats-strip">
           <div className="stat-box">
             <span className="stat-label">Last Scan Time</span>
             <span className="stat-value" style={{ fontSize: "15px" }}>
@@ -929,9 +929,7 @@ export function App() {
           </div>
         </div>
 
-        <div className="px-4 md:px-6">
-          <DiscoveryHealth compact refreshKey={status?.lastScan?.lastRun || ''} />
-        </div>
+        <DiscoveryHealth compact refreshKey={status?.lastScan?.lastRun || ''} />
 
           <PipelineFilters
             pipelineView={pipelineView}
@@ -969,7 +967,7 @@ export function App() {
             setModelFilter={setModelFilter}
           />
 
-        <div className="flex min-w-0 w-full flex-col gap-3 px-4 pb-4 md:px-6">
+        <div className="flex min-w-0 w-full flex-col gap-3 md:gap-4">
         {pipelineView === "manual" && (
           <ManualJobBoard
             providerId={selectedProviderId}
