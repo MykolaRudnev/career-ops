@@ -1,6 +1,10 @@
 // @ts-check
 /** @typedef {import('./_types.js').Provider} Provider */
 
+import { readFileSync, realpathSync } from 'fs';
+import { resolve, sep } from 'path';
+import { fileURLToPath } from 'url';
+
 // JustJoin.it provider — hits the current candidate offers API.
 // Browser URLs under https://justjoin.it/job-offers/... are accepted for
 // detection, but fetches use https://justjoin.it/api/candidate-api/offers.
@@ -10,6 +14,15 @@ const API_BASE = 'https://justjoin.it/api/candidate-api/offers';
 const JOB_BASE = 'https://justjoin.it/job-offer/';
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 50;
+const PROJECT_ROOT = realpathSync(resolve(fileURLToPath(new URL('..', import.meta.url))));
+
+function resolveInsideRoot(rawPath) {
+  const resolved = realpathSync(resolve(PROJECT_ROOT, String(rawPath)));
+  if (resolved !== PROJECT_ROOT && !resolved.startsWith(PROJECT_ROOT + sep)) {
+    throw new Error(`justjoin: path escapes the project root: ${rawPath}`);
+  }
+  return resolved;
+}
 
 function assertJustJoinUrl(url) {
   let parsed;
@@ -134,6 +147,23 @@ function dedupeByUrl(jobs) {
   return out;
 }
 
+function loadFixtureJobs(entry) {
+  const raw = entry.fixture;
+  if (!raw || typeof raw !== 'string' || !String(raw).trim()) return null;
+  const path = resolveInsideRoot(raw);
+  let json;
+  try {
+    json = JSON.parse(readFileSync(path, 'utf-8'));
+  } catch (err) {
+    throw new Error(`justjoin: failed to read fixture ${raw}: ${err.message}`);
+  }
+  if (json && Array.isArray(json.data)) return parseJustJoinResponse(json);
+  if (Array.isArray(json)) {
+    return json.filter((job) => job && typeof job === 'object' && job.title && job.url);
+  }
+  throw new Error(`justjoin: fixture must be { data: [...] } or an array of normalized jobs`);
+}
+
 async function fetchOfferPages(entry, ctx, { keyword } = {}) {
   const jobs = [];
   let from = 0;
@@ -163,6 +193,9 @@ export default {
   },
 
   async fetch(entry, ctx) {
+    const fromFixture = loadFixtureJobs(entry);
+    if (fromFixture) return dedupeByUrl(fromFixture);
+
     if (!detectUrl(entry)) throw new Error('justjoin: careers_url or api must be a trusted justjoin.it URL');
 
     const jobs = await fetchOfferPages(entry, ctx);

@@ -1,0 +1,38 @@
+{
+  "data": [
+    {
+      "slug": "redstone-frontend-developer-web-designer-warszawa-javascript",
+      "title": "Frontend Developer & Web Designer",
+      "companyName": "RedStone",
+      "workplaceType": "remote",
+      "locations": [{ "city": "Warszawa" }],
+      "publishedAt": "2026-10-01T10:00:00.000Z",
+      "requiredSkills": [
+        { "name": "JavaScript" },
+        { "name": "TypeScript" },
+        { "name": "Next.js" },
+        { "name": "React" },
+        { "name": "Tailwind CSS" }
+      ]
+    },
+    {
+      "slug": "attomy-sp-z-o-o--shopify-developer-rzeszow-html-05afe0ba",
+      "title": "Shopify Developer",
+      "companyName": "Attomy Sp. z o.o.",
+      "workplaceType": "remote",
+      "locations": [{ "city": "Rzeszów" }],
+      "publishedAt": "2026-10-02T10:00:00.000Z",
+      "requiredSkills": [{ "name": "Shopify" }, { "name": "Liquid" }]
+    },
+    {
+      "slug": "acme-java-backend-krakow-java",
+      "title": "Java Backend Developer",
+      "companyName": "Acme Corp",
+      "workplaceType": "office",
+      "locations": [{ "city": "Kraków" }],
+      "publishedAt": "2026-10-02T10:00:00.000Z",
+      "requiredSkills": [{ "name": "Java" }, { "name": "Spring" }]
+    }
+  ],
+  "meta": { "totalItems": 3 }
+}

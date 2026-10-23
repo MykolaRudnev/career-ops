@@ -124,7 +124,7 @@ app.get("/api/status", (req, res) => {
 app.get("/api/pipeline", (req, res) => {
   try {
     const { pending, processed } = parsePipeline();
-    const analytics = { jobs: getMarketAnalyticsIndex(WORKSPACE_ROOT, [...pending, ...processed]) };
+    const analytics = getMarketAnalyticsIndex(WORKSPACE_ROOT, [...pending, ...processed]);
 
     // Attach cached evaluations
     const enrich = (job: any) => {
