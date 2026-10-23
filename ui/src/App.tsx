@@ -641,7 +641,7 @@ export function App() {
     });
 
   return (
-    <div className={`dashboard ${selectedJob ? "has-job-details" : ""}`}>
+    <div className={`dashboard box-border flex flex-col gap-3 px-4 py-2.5 md:gap-4 md:px-6 md:py-3 ${selectedJob ? "has-job-details" : ""}`}>
       {/* Header */}
       <header className="header">
         <div className="header-title-group">
@@ -877,7 +877,7 @@ export function App() {
 
       {/* SECTION 1: SEARCH & PIPELINE */}
       {activeTab === "pipeline" && <Card className="card pipeline-card gap-0 border-border bg-card !p-0 overflow-hidden">
-        <CardHeader className="card-header flex-col items-stretch gap-3 space-y-0 border-b border-border p-3 sm:flex-row sm:items-start sm:justify-between">
+        <CardHeader className="pipeline-section-header card-header flex-col items-stretch gap-3 space-y-0 border-b border-border px-4 py-3 md:px-6 sm:flex-row sm:items-start sm:justify-between">
           <CardTitle className="card-title flex items-center gap-2 text-base font-semibold">
             <Search size={18} /> Section 1 — Search & Pipeline
           </CardTitle>
@@ -899,10 +899,10 @@ export function App() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3 p-3">
+        <CardContent className="pipeline-section-body flex flex-col gap-4 px-4 pb-4 pt-3 md:px-6 md:pb-6">
 
         {/* Stats Strip */}
-        <div className="stats-strip">
+        <div className="stats-strip min-w-0 w-full">
           <div className="stat-box">
             <span className="stat-label">Last Scan Time</span>
             <span className="stat-value" style={{ fontSize: "15px" }}>
@@ -967,7 +967,7 @@ export function App() {
             setModelFilter={setModelFilter}
           />
 
-        <div className="flex min-w-0 w-full flex-col gap-3 md:gap-4">
+        <div className="flex min-w-0 w-full flex-col gap-4">
         {pipelineView === "manual" && (
           <ManualJobBoard
             providerId={selectedProviderId}

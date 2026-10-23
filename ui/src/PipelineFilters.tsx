@@ -380,8 +380,8 @@ export function PipelineFilters(props: PipelineFiltersProps) {
   const showJobFilters = pipelineView !== "manual";
 
   return (
-    <div className={cn("w-full min-w-0 overflow-x-hidden border-b border-border py-3", className)}>
-      <div className="flex min-w-0 flex-col gap-3">
+    <div className={cn("w-full min-w-0 overflow-x-hidden border-b border-border pb-4", className)}>
+      <div className="flex min-w-0 flex-col gap-4">
         <PipelineViewTabs {...props} />
         {showJobFilters && (
           <>
