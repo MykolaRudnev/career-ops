@@ -1,0 +1,16 @@
+{
+  "title": "UI/UX Developer",
+  "company": "Harvey Nash Technology",
+  "location": "hybrid, Warszawa",
+  "category": "UX/UI",
+  "url": "https://justjoin.it/job-offer/harvey-nash-technology-ui-ux-developer-warszawa-ux",
+  "requiredTechnologies": [
+    { "name": "React", "level": "regular" },
+    { "name": "TypeScript", "level": "regular" },
+    { "name": "Redux", "level": "regular" },
+    { "name": "Context.api", "level": "regular" }
+  ],
+  "niceToHaveTechnologies": [],
+  "technologies": ["React", "TypeScript", "Redux", "Context.api"],
+  "description": "Required skills:\nReact\nTypeScript\nRedux\nContext.api\n\nBuild scalable front-end features and reusable React components. Translate Figma designs into UI. Integrate REST and GraphQL APIs. Focus on performance and accessibility (WCAG). 8-10+ years experience with 6+ years commercial React, Redux/Context."
+}

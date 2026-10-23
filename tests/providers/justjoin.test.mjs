@@ -64,10 +64,28 @@ try {
     fail(`justjoin parser mapped fields incorrectly: ${JSON.stringify(parsed[0])}`);
   }
 
-  if (Array.isArray(parsed[0].technologies) && parsed[0].description?.includes('Tech stack:')) {
-    pass('justjoin parser maps technologies and synthetic description');
+  if (Array.isArray(parsed[0].technologies) && parsed[0].description?.includes('Required skills:')) {
+    pass('justjoin parser maps required technologies and description');
   } else {
     fail(`justjoin parser should expose technologies/description: ${JSON.stringify(parsed[0])}`);
+  }
+
+  const splitSkills = parseJustJoinResponse({
+    data: [{
+      slug: 'kotlin-dev-poznan-java',
+      title: 'Kotlin Developer',
+      companyName: 'Sii',
+      publishedAt: '2026-10-01T10:00:00.000Z',
+      category: 'Java',
+      requiredSkills: [{ name: 'Kotlin', level: 'advanced' }],
+      niceToHaveSkills: [{ name: 'React.JS', level: 'nice to have' }],
+    }],
+  });
+  if (splitSkills[0].technologies.length === 1 && splitSkills[0].technologies[0] === 'Kotlin'
+    && splitSkills[0].niceToHaveTechnologies?.length === 1) {
+    pass('justjoin parser keeps nice-to-have skills out of technologies[]');
+  } else {
+    fail(`justjoin skill split wrong: ${JSON.stringify(splitSkills[0])}`);
   }
 
   let capturedUrl = '';
